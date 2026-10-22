@@ -1,0 +1,36 @@
+name: Build and test
+on:
+  push:
+  pull_request:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - name: Build desktop and run tests
+        shell: pwsh
+        run: ./scripts/validate.ps1
+      - name: Smoke desktop capture and restoration
+        shell: powershell
+        run: ./scripts/smoke-windows.ps1
+  portable-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - run: dotnet restore tests/ClipScope.Core.Tests --locked-mode
+      - run: dotnet restore tests/ClipScope.Infrastructure.Tests --locked-mode
+      - run: dotnet test --project tests/ClipScope.Core.Tests -c Release
+      - run: dotnet test --project tests/ClipScope.Infrastructure.Tests -c Release
