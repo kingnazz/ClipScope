@@ -28,6 +28,7 @@ public sealed partial class ClipScopeApplication : Application, IXamlMetadataPro
         log.Write("app.startup");
         try
         {
+            XamlControlsXamlMetaDataProvider.Initialize();
             Resources.MergedDictionaries.Add(new XamlControlsResources());
             log.Write("app.resources_initialized");
             var settingsStore = new SettingsStore(paths, log);
