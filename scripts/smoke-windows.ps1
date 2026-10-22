@@ -43,7 +43,8 @@ try {
     Wait-Condition {
         $pidCondition = New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $script:app.Id)
         $nameCondition = New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty, 'ClipScope')
-        $both = New-Object System.Windows.Automation.AndCondition -ArgumentList (,([System.Windows.Automation.Condition[]]@($pidCondition, $nameCondition)))
+        $visibleCondition = New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::IsOffscreenProperty, $false)
+        $both = New-Object System.Windows.Automation.AndCondition -ArgumentList (,([System.Windows.Automation.Condition[]]@($pidCondition, $nameCondition, $visibleCondition)))
         $script:window = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, $both)
         $null -ne $script:window
     } 'WinUI main window'
