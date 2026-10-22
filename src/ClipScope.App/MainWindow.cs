@@ -155,6 +155,7 @@ internal sealed partial class MainWindow : Window
         Grid.SetColumn(detailBorder, 2); body.Children.Add(detailBorder);
         Grid.SetRow(body, 2); _root.Children.Add(body);
         Grid.SetRow(_status, 3); _root.Children.Add(_status);
+        AutomationProperties.SetName(_search, "Search clipboard history");
         _search.TextChanged += (_, _) => { _offset = 0; _ = RefreshAsync(true); };
         _search.KeyDown += async (_, args) =>
         {

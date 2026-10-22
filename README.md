@@ -61,6 +61,13 @@ The full desktop build requires Windows (`mt.exe` and native Windows resources).
 A Linux C# compilation with deployment steps disabled does not establish Windows
 startup or behavior. GitHub Actions includes full Windows builds and portable tests.
 
+An optional Windows UI smoke script, `scripts/smoke-windows.ps1`, uses UI Automation
+and a synthetic Forms clipboard producer to check launch, capture, source-window
+attribution, restoration and pinning. Run it only in a fresh isolated Windows user
+profile; it refuses to touch existing ClipScope data. CI reports a distinct skip
+notice if its runner has no interactive desktop or cannot activate the producer.
+It does not replace the manual Windows 11 checklist.
+
 ## Architecture
 
 | Project | Responsibility |

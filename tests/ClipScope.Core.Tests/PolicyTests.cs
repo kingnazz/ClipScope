@@ -54,18 +54,24 @@ public sealed class PolicyTests
     public void AHelperOwnerUsesForegroundWindowFromTheSameProcess()
     {
         var owner = Source with { WindowHandle = 99, WindowTitle = "" };
-        Assert.Equal(Source, ContextPolicy.ResolveClipboardSource(owner, Source));
+        Assert.Equal(Source, ContextPolicy.ResolveClipboardSource(owner, Source, false));
     }
     [Fact]
     public void DifferentOwnerIsNotAttributedToTheForegroundApplication()
     {
         var owner = Source with { ProcessId = 20, WindowHandle = 99 };
-        Assert.Equal(owner, ContextPolicy.ResolveClipboardSource(owner, Source));
+        Assert.Equal(owner, ContextPolicy.ResolveClipboardSource(owner, Source, false));
+    }
+    [Fact]
+    public void AVisibleOwnerRetainsItsSpecificWindowEvenWithinTheSameProcess()
+    {
+        var owner = Source with { WindowHandle = 99, WindowTitle = "other document" };
+        Assert.Equal(owner, ContextPolicy.ResolveClipboardSource(owner, Source, true));
     }
     [Fact]
     public void MissingClipboardOwnerDoesNotGuessSourceFromForeground()
     {
-        Assert.False(ContextPolicy.ResolveClipboardSource(new(), Source).IsResolved);
+        Assert.False(ContextPolicy.ResolveClipboardSource(new(), Source, false).IsResolved);
     }
     [Fact]
     public void HtmlOffsetsUseUtf8Bytes()

@@ -5,7 +5,10 @@
 A dedicated STA thread creates an invisible top-level HWND and message pump. It
 subscribes with `AddClipboardFormatListener`, never polls. `WM_CLIPBOARDUPDATE`
 snapshots the sequence number, local timestamp and source context. `GetClipboardOwner`
-plus `GetAncestor(GA_ROOT)` identifies the owner window; foreground and owner
+plus `GetAncestor(GA_ROOT)` identifies the owner process. If its window is a hidden helper and its process matches the foreground process,
+the foreground window supplies the document/window context. A visible owner
+retains its specific window, even if foreground has changed within the same process.
+Different-process owners retain their own identity. Foreground and owner
 processes must both pass privacy checks. Missing owners/unknown processes fail
 closed. Process paths use `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` and
 `QueryFullProcessImageName`; inaccessible optional metadata is tolerated. Window

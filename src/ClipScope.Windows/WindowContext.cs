@@ -15,7 +15,7 @@ public sealed class WindowContext
         var owner = Native.GetClipboardOwner();
         if (owner == 0) return new SourceContext();
         var source = Inspect(owner);
-        return ContextPolicy.ResolveClipboardSource(source, foreground);
+        return ContextPolicy.ResolveClipboardSource(source, foreground, Native.IsWindowVisible((nint)source.WindowHandle));
     }
     public SourceContext Inspect(nint window)
     {

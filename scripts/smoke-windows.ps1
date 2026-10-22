@@ -6,7 +6,8 @@ if (-not [Environment]::UserInteractive) {
     Write-Output '::notice title=ClipScope desktop smoke::SKIPPED: runner has no interactive desktop'
     exit 0
 }
-if (Test-Path (Join-Path $env:LOCALAPPDATA 'ClipScope')) {
+$dataDirectory = Join-Path $env:LOCALAPPDATA 'ClipScope'
+if (Test-Path $dataDirectory) {
     throw 'Desktop smoke requires a fresh isolated user profile; existing ClipScope data is protected.'
 }
 Add-Type -AssemblyName System.Windows.Forms
@@ -35,7 +36,13 @@ $source = New-Object System.Windows.Forms.Form
 $source.Text = 'ClipScope CI Source'
 $source.Width = 500; $source.Height = 200
 $source.TopMost = $true
+$destination = New-Object System.Windows.Forms.TextBox
+$destination.Multiline = $true; $destination.Dock = [System.Windows.Forms.DockStyle]::Fill
+$source.Controls.Add($destination)
 $source.Show()
+# Exercise the real persisted screenshot preference, never a production test hook.
+[void](New-Item -Path $dataDirectory -ItemType Directory)
+'{"ScreenshotsEnabled":true}' | Set-Content -Path (Join-Path $dataDirectory 'settings.json') -Encoding UTF8
 try {
     $exe = Join-Path (Split-Path $PSScriptRoot -Parent) 'src/ClipScope.App/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64/ClipScope.App.exe'
     $script:app = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe -Parent) -PassThru
@@ -70,6 +77,17 @@ try {
         }
         return $false
     } 'source-window context in detail pane'
+    $script:contextImage = $null
+    Wait-Condition {
+        $script:contextImage = Get-ChildItem (Join-Path $dataDirectory 'media') -Filter '*-context.png' -ErrorAction SilentlyContinue | Select-Object -First 1
+        $null -ne $script:contextImage
+    } 'optional source-window screenshot on disk'
+    $image = [System.Drawing.Image]::FromFile($script:contextImage.FullName)
+    try {
+        if ($image.Width -lt 100 -or $image.Height -lt 80 -or $image.Width -gt 1000 -or $image.Height -gt 600) {
+            throw 'Source-window screenshot has unexpected dimensions.'
+        }
+    } finally { $image.Dispose() }
     [System.Windows.Forms.Clipboard]::Clear()
     $copy = Find-Name 'Copy'
     if ($null -eq $copy) { throw 'Copy action missing.' }
@@ -79,7 +97,28 @@ try {
     if ($null -eq $pin) { throw 'Pin action missing.' }
     $pin.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Condition { $null -ne (Find-Name 'Unpin') } 'persisted pin state in detail pane'
-    Write-Output '::notice title=ClipScope desktop smoke::PASS: launch, text capture, source-window context, clipboard restoration, pin'
+    $search = Find-Name 'Search clipboard history'
+    if ($null -eq $search) { throw 'Search field missing.' }
+    $value = $search.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+    $value.SetValue('no-matching-clip-unique-query')
+    Wait-Condition { $null -eq (Find-Name $fixture) } 'search excluding unmatched content'
+    $value.SetValue('192.168')
+    Wait-Condition { $null -ne (Find-Name $fixture) } 'FTS matching historical text'
+    $source.Activate(); $destination.Focus()
+    [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
+    [System.Windows.Forms.SendKeys]::SendWait('^+v')
+    Wait-Condition { [ClipScopeSmokeNative]::GetForegroundWindow() -eq [IntPtr]$script:window.Current.NativeWindowHandle } 'global shortcut opening history'
+    # Enter in the search box must resolve current results before paste.
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    Wait-Condition { $destination.Text -eq $fixture } 'focus handoff and synthetic paste into the source application'
+    [System.Windows.Forms.SendKeys]::SendWait('^+v')
+    Wait-Condition { [ClipScopeSmokeNative]::GetForegroundWindow() -eq [IntPtr]$script:window.Current.NativeWindowHandle } 'history after paste'
+    Wait-Condition { $null -ne (Find-Name 'Delete') } 'selected clip actions after paste'
+    $delete = Find-Name 'Delete'
+    $delete.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Condition { $null -eq (Find-Name $fixture) } 'clip deletion from history'
+    Wait-Condition { -not (Test-Path $script:contextImage.FullName) } 'deleted clip media cleanup'
+    Write-Output '::notice title=ClipScope desktop smoke::PASS: launch, text capture, source-window context, screenshot PNG, clipboard restoration, pin, FTS search, global shortcut, focus/paste, deletion and media cleanup'
 } catch {
     Write-Output ("::error title=ClipScope desktop smoke::" + $_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A'))
     $diagnostic = Join-Path $env:LOCALAPPDATA 'ClipScope/logs/diagnostic.log'
