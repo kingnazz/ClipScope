@@ -45,7 +45,7 @@ public static class WindowImages
         if (!Native.GetWindowRect(hwnd, out var rect)) return null;
         var width = rect.Right - rect.Left; var height = rect.Bottom - rect.Top;
         if (width is <= 0 or > 8192 || height is <= 0 or > 8192 || (long)width * height > 16_000_000) return null;
-        using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppRgb);
         using (var graphics = Graphics.FromImage(bitmap))
         {
             var dc = graphics.GetHdc();
