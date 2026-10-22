@@ -1,0 +1,30 @@
+name: Build and test
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Build desktop and run tests
+        shell: pwsh
+        run: ./scripts/validate.ps1
+  portable-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet restore tests/ClipScope.Core.Tests --locked-mode
+      - run: dotnet restore tests/ClipScope.Infrastructure.Tests --locked-mode
+      - run: dotnet test --project tests/ClipScope.Core.Tests -c Release
+      - run: dotnet test --project tests/ClipScope.Infrastructure.Tests -c Release
