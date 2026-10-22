@@ -1,7 +1,7 @@
 # Phase 1 implementation plan
 
-The repository was inspected on 2026-10-22: no commits, files, branches, issues
-accessible through the API, or existing project conventions. Work is on
+The repository was inspected on 2026-10-22: no commits, files, branches, or existing project conventions. The issues API
+was initially inaccessible; once access worked it confirmed no existing issues. Work is on
 `feat/phase1-foundation`; no application changes will be made on `main`.
 
 1. Establish .NET 10 projects, domain contracts, bounded capture policies, and tests.

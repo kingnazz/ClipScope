@@ -1,8 +1,10 @@
 # Validation and release gate
 
-## Evidence from this cloud instance (2026-10-22)
+## Evidence from cloud validation and Windows CI (2026-10-22)
 
-Linux x64, .NET SDK 10.0.402 / runtime 10.0.13. Dependencies restored in locked mode.
+Linux x64 and GitHub Actions Windows runner, .NET SDK 10.0.402 / runtime 10.0.13.
+Dependencies restored in locked mode. Full Windows evidence: [CI run 39819411611](https://github.com/kingnazz/ClipScope/actions/runs/39819411611),
+implementation commit `07b20017789578773fa341c6d413ef5985e0a5ab`.
 
 | Check | Observed result |
 | --- | --- |
@@ -10,7 +12,9 @@ Linux x64, .NET SDK 10.0.402 / runtime 10.0.13. Dependencies restored in locked 
 | Infrastructure integration tests, real SQLite/FTS5 and filesystem | 21 passed, 0 failed, 0 skipped |
 | Core / Infrastructure / Windows builds | Passed; no warnings or errors |
 | WinUI C# diagnostic build | Passed; no warnings or errors |
-| Full desktop build with app-local SDK payload/manifest | Blocked on Linux by Windows `mt.exe` (exec format error) |
+| Full Release desktop/solution build with app-local SDK payload/manifest | Passed on Windows CI with warnings treated as errors; 0 warnings, 0 errors |
+| Automated tests on Windows CI | 34 passed, 0 failed, 0 skipped |
+| Default full desktop build on Linux | Unsupported: Windows `mt.exe` exec format error; use Windows |
 | Windows 11 launch, clipboard, tray, screenshots, focus/paste, appearance | Not run; requires an interactive Windows desktop |
 | New cloud-task snapshot restoration | Not verified |
 
@@ -23,7 +27,7 @@ dotnet build src/ClipScope.App -p:Platform=x64 \
 
 These flags only allow compilation in Linux. They are not the Windows deployment
 configuration and do not prove that the application launches. The committed
-PowerShell validation script and Windows CI use the real default configuration.
+PowerShell validation script and the passing Windows CI use the real default configuration.
 No warnings are suppressed globally. xUnit tests use .NET 10's Microsoft Testing
 Platform and honor test cancellation.
 
@@ -85,7 +89,7 @@ remain open until exercised on an interactive Windows desktop.
 
 ## Current limitations
 
-- Windows-only full build and every desktop acceptance check above are unverified.
+- The full Windows build passes, but every interactive desktop acceptance check above remains unverified.
 - PrintWindow is best effort; GPU/protected apps may fail or return a black image.
   Broken native delayed renderers can occupy the clipboard STA or screenshot worker.
 - Copy bursts faster than rendering/storage and the bounded queue may lose events;
@@ -103,7 +107,7 @@ remain open until exercised on an interactive Windows desktop.
 - Document context beyond copied paths/window titles and all Phase 2 features are
   deferred. There is no installer, release, auto-update, AI or network service.
 
-**Phase 1 readiness: 70/100.** The implementation and portable tests exist; a clean
-Windows deployment build and hands-on acceptance are necessary before calling the
-Phase 1 definition of done complete. This score is an engineering estimate, not
+**Phase 1 readiness: 80/100.** The implementation, full Windows deployment build
+and automated tests pass; hands-on Windows acceptance remains necessary before
+calling the Phase 1 definition of done complete. This score is an engineering estimate, not
 an automated test metric.
