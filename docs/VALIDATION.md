@@ -3,19 +3,20 @@
 ## Evidence from cloud validation and Windows CI (2026-10-22)
 
 Linux x64 and GitHub Actions Windows runner, .NET SDK 10.0.402 / runtime 10.0.13.
-Dependencies restored in locked mode. Full Windows evidence: [CI run 39819411611](https://github.com/kingnazz/ClipScope/actions/runs/39819411611),
-implementation commit `07b20017789578773fa341c6d413ef5985e0a5ab`.
+Dependencies restored in locked mode. Full Windows evidence: [CI run 39823053915](https://github.com/kingnazz/ClipScope/actions/runs/39823053915),
+implementation commit `a4fe6cb50b5f1b1ac8d81f8ed7becb9c3dafd868`.
 
 | Check | Observed result |
 | --- | --- |
-| Core policy tests | 13 passed, 0 failed, 0 skipped |
+| Core policy tests | 17 passed, 0 failed, 0 skipped |
 | Infrastructure integration tests, real SQLite/FTS5 and filesystem | 21 passed, 0 failed, 0 skipped |
 | Core / Infrastructure / Windows builds | Passed; no warnings or errors |
 | WinUI C# diagnostic build | Passed; no warnings or errors |
 | Full Release desktop/solution build with app-local SDK payload/manifest | Passed on Windows CI with warnings treated as errors; 0 warnings, 0 errors |
-| Automated tests on Windows CI | 34 passed, 0 failed, 0 skipped |
+| Automated tests on Windows CI | 38 passed, 0 failed, 0 skipped |
 | Default full desktop build on Linux | Unsupported: Windows `mt.exe` exec format error; use Windows |
-| Windows 11 launch, clipboard, tray, screenshots, focus/paste, appearance | Not run; requires an interactive Windows desktop |
+| Windows desktop functional smoke | Passed: launch, text capture, source window, screenshot PNG, restoration, pin, FTS search, global shortcut, focus/paste, deletion and media cleanup |
+| Windows 11 visual/compatibility/long-session acceptance | Not run; physical review remains required |
 | New cloud-task snapshot restoration | Not verified |
 
 The C# diagnostic build used:
@@ -38,6 +39,22 @@ search sources, filters, hostile search syntax, pagination/cancellation, deletio
 and FTS synchronization, late context attachment, age and budget eviction, pinned
 budget overflow, pin/cleanup race prevention, settings corruption/serialization,
 orphan grace/path containment and content-free diagnostic log rotation.
+
+## Desktop functional evidence
+
+`scripts/smoke-windows.ps1` ran successfully (not skipped) on the Windows CI runner.
+It starts a real WinUI process and a synthetic WinForms source, verifies text in
+history and source-window attribution, validates a window-sized screenshot PNG,
+restores the clipboard, pins, searches, invokes Ctrl+Shift+V and Enter, verifies
+pasted text in the external source application, deletes the clip, and confirms
+media cleanup. A fresh profile is mandatory; existing ClipScope data is protected.
+The script reports an explicit skip when no interactive desktop/foreground access
+exists; neither skip occurred in the linked successful run.
+
+This check exposed and led to correction of code-first WinUI metadata/resource
+initialization. Compilation alone had not detected that startup failure. The
+current application explicitly initializes XamlControlsXamlMetaDataProvider and
+implements IXamlMetadataProvider before loading control resources.
 
 ## Required Windows 11 acceptance checks
 
@@ -89,7 +106,10 @@ remain open until exercised on an interactive Windows desktop.
 
 ## Current limitations
 
-- The full Windows build passes, but every interactive desktop acceptance check above remains unverified.
+- The full Windows build and the functional subset above pass on CI. The broader
+  Windows 11 acceptance matrix, native image/HTML/RTF compatibility, visual polish,
+  accessibility, DPI, protected windows, tray lifecycle and long-session behavior
+  still require hands-on validation.
 - PrintWindow is best effort; GPU/protected apps may fail or return a black image.
   Broken native delayed renderers can occupy the clipboard STA or screenshot worker.
 - Copy bursts faster than rendering/storage and the bounded queue may lose events;
@@ -107,7 +127,7 @@ remain open until exercised on an interactive Windows desktop.
 - Document context beyond copied paths/window titles and all Phase 2 features are
   deferred. There is no installer, release, auto-update, AI or network service.
 
-**Phase 1 readiness: 80/100.** The implementation, full Windows deployment build
-and automated tests pass; hands-on Windows acceptance remains necessary before
-calling the Phase 1 definition of done complete. This score is an engineering estimate, not
+**Phase 1 readiness: 85/100.** The implementation, full Windows deployment build,
+38 automated tests and the core desktop workflow pass. Broader hands-on Windows 11
+acceptance remains necessary before calling the Phase 1 definition of done complete. This score is an engineering estimate, not
 an automated test metric.

@@ -63,7 +63,8 @@ startup or behavior. GitHub Actions includes full Windows builds and portable te
 
 An optional Windows UI smoke script, `scripts/smoke-windows.ps1`, uses UI Automation
 and a synthetic Forms clipboard producer to check launch, capture, source-window
-attribution, restoration and pinning. Run it only in a fresh isolated Windows user
+attribution, screenshot storage, restoration, pinning, search, hotkey/paste and
+deletion/media cleanup. Run it only in a fresh isolated Windows user
 profile; it refuses to touch existing ClipScope data. CI reports a distinct skip
 notice if its runner has no interactive desktop or cannot activate the producer.
 It does not replace the manual Windows 11 checklist.
