@@ -16,6 +16,9 @@ jobs:
       - name: Build desktop and run tests
         shell: pwsh
         run: ./scripts/validate.ps1
+      - name: Smoke desktop capture and restoration
+        shell: powershell
+        run: ./scripts/smoke-windows.ps1
   portable-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10

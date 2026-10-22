@@ -51,6 +51,23 @@ public sealed class PolicyTests
         Assert.True(PrivacyPolicy.IsExcluded(Source with { ExecutablePath = null }, settings));
     }
     [Fact]
+    public void AHelperOwnerUsesForegroundWindowFromTheSameProcess()
+    {
+        var owner = Source with { WindowHandle = 99, WindowTitle = "" };
+        Assert.Equal(Source, ContextPolicy.ResolveClipboardSource(owner, Source));
+    }
+    [Fact]
+    public void DifferentOwnerIsNotAttributedToTheForegroundApplication()
+    {
+        var owner = Source with { ProcessId = 20, WindowHandle = 99 };
+        Assert.Equal(owner, ContextPolicy.ResolveClipboardSource(owner, Source));
+    }
+    [Fact]
+    public void MissingClipboardOwnerDoesNotGuessSourceFromForeground()
+    {
+        Assert.False(ContextPolicy.ResolveClipboardSource(new(), Source).IsResolved);
+    }
+    [Fact]
     public void HtmlOffsetsUseUtf8Bytes()
     {
         const string header = "Version:1.0\r\nStartFragment:0000000000\r\nEndFragment:0000000000\r\n";
