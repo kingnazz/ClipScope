@@ -48,6 +48,9 @@ jobs:
           dotnet build tools/ClipScope.Diagnostics -c Release --no-restore -warnaserror
           if ($LASTEXITCODE -ne 0) { throw 'Diagnostic build failed' }
           ./scripts/test-installer.ps1
+      - name: Test real applications, exclusions and Explorer recovery
+        shell: powershell
+        run: ./scripts/compat-windows.ps1
       - name: Measure installed endurance and resources
         shell: pwsh
         env:

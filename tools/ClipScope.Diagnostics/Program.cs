@@ -57,11 +57,18 @@ else
     {
         if (args.Length != 3) throw new ArgumentException("Probe requires a synthetic needle.");
         var needle = args[2];
+        Clip? latest = null;
+        if (Scalar("SELECT payload FROM clips WHERE instr(payload,$value)>0 ORDER BY created DESC LIMIT 1;", needle) is string payload)
+            latest = JsonSerializer.Deserialize<Clip>(payload);
+        PngPreview? Preview(string? relative) => relative is null ? null : PngPreview.Read(File.ReadAllBytes(paths.ResolveMedia(relative)), 320);
         Console.WriteLine(JsonSerializer.Serialize(new { clips = Scalar("SELECT COUNT(*) FROM clips;"),
             payloadHits = Scalar("SELECT COUNT(*) FROM clips WHERE instr(payload,$value)>0;", needle),
             metadataHits = Scalar("SELECT COUNT(*) FROM clips WHERE instr(title,$value)>0 OR instr(app,$value)>0;", needle),
             ftsHits = Scalar("SELECT COUNT(*) FROM clips_fts WHERE clips_fts MATCH $value;", "\"" + needle.Replace("\"", "\"\"") + "\""),
-            mediaFiles = Directory.GetFiles(paths.Media).Length + Directory.GetFiles(paths.Thumbnails).Length, integrity = "ok" }));
+            mediaFiles = Directory.GetFiles(paths.Media).Length + Directory.GetFiles(paths.Thumbnails).Length, integrity = "ok",
+            latest = latest is null ? null : new { kind = latest.Kind.ToString(), source = latest.Source.ProcessName,
+                hasHtml = latest.Html is not null, hasRtf = latest.Rtf is not null, formats = latest.Formats,
+                fileCount = latest.Files.Length, context = Preview(latest.ContextScreenshotPath), thumbnail = Preview(latest.ThumbnailPath) } }));
     }
     else if (command == "snapshot")
     {

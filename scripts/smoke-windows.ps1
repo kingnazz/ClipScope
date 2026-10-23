@@ -85,13 +85,17 @@ $source.Show()
         } "action $Name"
     }
     function Find-Pattern([string] $Name, $Pattern) {
-        $elements = $script:window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-            (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty, $Name)))
-        foreach ($element in $elements) {
-            $provider = $null
-            if ($element.TryGetCurrentPattern($Pattern, [ref]$provider)) { return $provider }
-        }
-        throw 'Required UI automation pattern is unavailable.'
+        $script:foundPattern = $null
+        Wait-Condition {
+            $elements = $script:window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty, $Name)))
+            foreach ($element in $elements) {
+                $provider = $null
+                if ($element.TryGetCurrentPattern($Pattern, [ref]$provider)) { $script:foundPattern = $provider; return $true }
+            }
+            return $false
+        } "UI pattern $Name"
+        return $script:foundPattern
     }
     # The owner is a Forms clipboard helper HWND; the real foreground title must
     # still be attributed to this visible source window.

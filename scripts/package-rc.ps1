@@ -29,9 +29,10 @@ try {
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
     $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
     if (-not $vs) { throw 'The licensed Visual C++ release redistributable directory is required on the build machine.' }
-    $crt = Get-ChildItem -LiteralPath (Join-Path $vs 'VC/Redist/MSVC') -Directory |
-        Sort-Object { [version]$_.Name } -Descending | ForEach-Object { Join-Path $_.FullName 'x64/Microsoft.VC143.CRT' } |
-        Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    $crtFile = Get-ChildItem -LiteralPath (Join-Path $vs 'VC/Redist/MSVC') -Filter 'vcruntime140.dll' -File -Recurse |
+        Where-Object { $_.FullName -match '\\x64\\Microsoft\.VC[0-9]+\.CRT\\vcruntime140\.dll$' } |
+        Sort-Object { [version]$_.VersionInfo.FileVersion } -Descending | Select-Object -First 1
+    $crt = if ($crtFile) { $crtFile.DirectoryName } else { $null }
     if (-not $crt) { throw 'The x64 release CRT redistribution payload was not found.' }
     Get-ChildItem -LiteralPath $crt -Filter '*.dll' | Copy-Item -Destination $stage
     $licenses = Join-Path $stage 'licenses'
