@@ -160,3 +160,6 @@ remain open until exercised on an interactive Windows desktop.
 38 automated tests and the core desktop workflow pass. Broader hands-on Windows 11
 acceptance remains necessary before calling the Phase 1 definition of done complete. This score is an engineering estimate, not
 an automated test metric.
+
+Representative captures from the final CI run are in `docs/screenshots/`
+(synthetic clips; the source window is a test form hosted by Windows PowerShell).
