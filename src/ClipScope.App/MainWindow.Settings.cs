@@ -124,6 +124,12 @@ internal sealed partial class MainWindow
         AutomationProperties.SetName(clear, "Clear unpinned history");
         var clearStatus = Ui.Text("CsCaptionTextStyle", wrap: true);
         clearStatus.Visibility = Visibility.Collapsed;
+        AutomationProperties.SetLiveSetting(clearStatus, AutomationLiveSetting.Polite);
+        void SetClearStatus(string value)
+        {
+            clearStatus.Visibility = Visibility.Visible; clearStatus.Text = value;
+            FrameworkElementAutomationPeer.FromElement(clearStatus)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+        }
 
         var confirm = new Button { Content = "Delete unpinned clips", Style = Ui.Style("AccentButtonStyle") };
         var confirmPanel = new StackPanel { Spacing = Ui.Space3, MaxWidth = 300 };
@@ -135,7 +141,7 @@ internal sealed partial class MainWindow
         confirm.Click += async (_, _) =>
         {
             if (!confirm.IsEnabled || _settingsBusy) return;
-            flyout.Hide(); clear.IsEnabled = confirm.IsEnabled = false; clearStatus.Visibility = Visibility.Visible; clearStatus.Text = "Clearing…";
+            flyout.Hide(); clear.IsEnabled = confirm.IsEnabled = false; SetClearStatus("Clearing…");
             try
             {
                 await Task.Run(async () =>
@@ -143,9 +149,9 @@ internal sealed partial class MainWindow
                     foreach (var clip in (await _repository.ListForMaintenanceAsync()).Where(x => !x.IsPinned))
                         if (await _repository.DeleteUnpinnedWithMediaAsync(clip.Id) is { } references) _media.Delete(references);
                 });
-                clearStatus.Text = "Unpinned history cleared."; await RefreshAsync();
+                SetClearStatus("Unpinned history cleared."); await RefreshAsync();
             }
-            catch (Exception e) { _log.Write("storage.clear_failed", e); clearStatus.Text = "Could not clear history. Check storage permissions and try again."; }
+            catch (Exception e) { _log.Write("storage.clear_failed", e); SetClearStatus("Could not clear history. Check storage permissions and try again."); }
             finally { clear.IsEnabled = confirm.IsEnabled = true; }
         };
         var storage = SettingsLayout.Page("Storage", "How long history is kept and where it lives. Everything stays on this PC.");

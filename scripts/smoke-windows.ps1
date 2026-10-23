@@ -205,7 +205,40 @@ $source.Show()
     $delete.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Condition { $null -eq (Find-Name $fixture) } 'clip deletion from history'
     Wait-Condition { -not (Test-Path $script:contextImage.FullName) } 'deleted clip media cleanup'
-    Write-Output '::notice title=ClipScope desktop smoke::PASS: launch, text capture, source-window context, screenshot PNG, clipboard restoration, pin, FTS search, global shortcut, focus/paste, deletion, media cleanup, immediate commands, settings Cancel, failed Save rollback and shortcut replacement'
+    # Exercise the real clear-history confirmation, retaining a pinned clip.
+    $value.SetValue('')
+    $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
+    [System.Windows.Forms.Clipboard]::SetText('ClipScope clear pinned sentinel')
+    Wait-Condition { $null -ne (Find-Name 'ClipScope clear pinned sentinel') } 'pinned-clear fixture capture'
+    [System.Windows.Forms.SendKeys]::SendWait('^+v')
+    Wait-Condition { $null -ne (Find-Name 'Pin') } 'clear fixture actions'
+    (Find-Name 'Pin').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Condition { $null -ne (Find-Name 'Unpin') } 'clear fixture pinned'
+    $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
+    [System.Windows.Forms.Clipboard]::SetText('ClipScope clear transient')
+    Wait-Condition { $null -ne (Find-Name 'ClipScope clear transient') } 'unpinned-clear fixture capture'
+    (Find-Name 'Settings').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Condition { $null -ne (Find-Name 'Settings sections') } 'clear settings open'
+    (Find-Name 'Storage').GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    (Find-Name 'Clear unpinned history').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $script:confirmClear = $null
+    Wait-Condition {
+        # Popups may have a separate UIA root; inspect only our app's process.
+        $roots = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children,
+            (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $script:app.Id)))
+        foreach ($root in $roots) {
+            $script:confirmClear = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty, 'Delete unpinned clips')))
+            if ($script:confirmClear) { return $true }
+        }
+        return $false
+    } 'clear confirmation'
+    $script:confirmClear.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Condition { $null -ne (Find-Name 'Unpinned history cleared.') } 'clear history completion'
+    (Find-Name 'Cancel').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Condition { $null -ne (Find-Name 'ClipScope clear pinned sentinel') } 'pinned clip preserved by clear'
+    if ($null -ne (Find-Name 'ClipScope clear transient') -or $null -ne (Find-Name 'ClipScope second item gamma')) { throw 'Clear retained unpinned history.' }
+    Write-Output '::notice title=ClipScope desktop smoke::PASS: launch, text capture, source-window context, screenshot PNG, clipboard restoration, pin, FTS search, global shortcut, focus/paste, deletion, media cleanup, immediate commands, settings Cancel, failed Save rollback shortcut replacement and clear preserving pinned clips'
 } catch {
     Write-Output ("::error title=ClipScope desktop smoke::" + $_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A'))
     $diagnostic = Join-Path $env:LOCALAPPDATA 'ClipScope/logs/diagnostic.log'
