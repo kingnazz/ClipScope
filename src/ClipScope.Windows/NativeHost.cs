@@ -19,7 +19,7 @@ public sealed class NativeHost : IDisposable
     private readonly Thread _thread;
     private readonly CancellationTokenSource _stop = new();
     private ClipboardReader? _reader;
-    private nint _window;
+    private nint _window, _ownedTrayIcon;
     private uint _sequence, _processed, _taskbarCreated;
     private SourceContext _source = new();
     private DateTimeOffset _capturedAt;
@@ -33,7 +33,21 @@ public sealed class NativeHost : IDisposable
     public event Action? ExitRequested;
     public bool TrayAvailable { get; private set; }
     public Task Ready => _ready.Task;
-    public static void ActivateExisting() => Native.PostMessage(Native.FindWindow(WindowClassName, null), Native.WM_APP + 4, 0, 0);
+    public static bool ActivateExisting() => NotifyExisting(Native.WM_APP + 4);
+    public static bool RequestExitExisting() => NotifyExisting(Native.WM_APP + 5);
+    public static void SetApplicationIdentity() => Marshal.ThrowExceptionForHR(Native.SetCurrentProcessExplicitAppUserModelID("ClipScope.Desktop"));
+    private static bool NotifyExisting(uint message)
+    {
+        // A second launch can race the first process before its host HWND exists.
+        // Only the short-lived secondary process waits; the application's UI never does.
+        for (var attempt = 0; attempt < 120; attempt++)
+        {
+            var window = Native.FindWindow(WindowClassName, null);
+            if (window != 0) return Native.PostMessage(window, message, 0, 0);
+            Thread.Sleep(25);
+        }
+        return false;
+    }
     public NativeHost(Func<AppSettings> settings, WindowContext context, IDiagnosticLog log)
     {
         _settings = settings; _context = context; _log = log;
@@ -52,8 +66,11 @@ public sealed class NativeHost : IDisposable
             if (_window == 0 || !Native.AddClipboardFormatListener(_window)) throw new Win32Exception(Marshal.GetLastWin32Error());
             _reader = new();
             _taskbarCreated = Native.RegisterWindowMessage("TaskbarCreated");
+            var iconSize = Math.Max(16, Native.GetSystemMetricsForDpi(49, Native.GetDpiForSystem()));
+            _ownedTrayIcon = Native.LoadImage(0, Path.Combine(AppContext.BaseDirectory, "Assets", "ClipScope.ico"), 1, iconSize, iconSize, 0x10);
+            if (_ownedTrayIcon == 0) _log.Write("tray.icon_load_failed");
             _tray = new() { Size = (uint)Marshal.SizeOf<Native.NotifyIconData>(), Window = _window, Id = 1,
-                Flags = 1 | 2 | 4, Callback = TrayMessage, Icon = Native.LoadIcon(0, (nint)32512),
+                Flags = 1 | 2 | 4, Callback = TrayMessage, Icon = _ownedTrayIcon != 0 ? _ownedTrayIcon : Native.LoadIcon(0, (nint)32512),
                 Tip = "ClipScope · clipboard history", Info = "", InfoTitle = "" };
             TrayAvailable = Native.Shell_NotifyIcon(0, ref _tray);
             if (!TrayAvailable) _log.Write("tray.add_failed");
@@ -73,6 +90,7 @@ public sealed class NativeHost : IDisposable
                 if (_reservedHotkeyId != 0) Native.UnregisterHotKey(_window, _reservedHotkeyId);
                 Native.Shell_NotifyIcon(2, ref _tray);
                 Native.DestroyWindow(_window);
+                if (_ownedTrayIcon != 0) Native.DestroyIcon(_ownedTrayIcon);
             }
         }
     }
@@ -80,10 +98,15 @@ public sealed class NativeHost : IDisposable
     {
         try
         {
-            if (message == _taskbarCreated && _taskbarCreated != 0) TrayAvailable = Native.Shell_NotifyIcon(0, ref _tray);
+            if (message == _taskbarCreated && _taskbarCreated != 0)
+            {
+                TrayAvailable = Native.Shell_NotifyIcon(0, ref _tray);
+                _log.Write(TrayAvailable ? "tray.recovered" : "tray.recovery_failed");
+            }
             if (message == WorkMessage) while (_commands.TryDequeue(out var command)) command();
             else if (message == Native.WM_CLIPBOARDUPDATE) OnClipboardUpdate();
             else if (message == RetryMessage && (uint)wParam == _sequence) TryCapture();
+            else if (message == Native.WM_APP + 5) ExitRequested?.Invoke();
             else if (message == Native.WM_APP + 4) OpenRequested?.Invoke(Native.GetForegroundWindow());
             else if (message == Native.WM_HOTKEY) OpenRequested?.Invoke(Native.GetForegroundWindow());
             else if (message == TrayMessage)

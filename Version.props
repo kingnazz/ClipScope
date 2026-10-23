@@ -1,0 +1,18 @@
+<Project>
+  <PropertyGroup>
+    <ClipScopeVersion Condition="'$(ClipScopeVersion)' == ''">0.1.0-rc.1</ClipScopeVersion>
+    <Version>$(ClipScopeVersion)</Version>
+    <VersionPrefix>$([System.Text.RegularExpressions.Regex]::Replace('$(Version)', '-.*$', ''))</VersionPrefix>
+    <ClipScopeRevision Condition="$([System.String]::Copy('$(Version)').Contains('-rc.'))">$([System.Text.RegularExpressions.Regex]::Replace('$(Version)', '^.*-rc\.', ''))</ClipScopeRevision>
+    <ClipScopeRevision Condition="'$(ClipScopeRevision)' == ''">0</ClipScopeRevision>
+    <AssemblyVersion>$(VersionPrefix).0</AssemblyVersion>
+    <FileVersion>$(VersionPrefix).$(ClipScopeRevision)</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <Product>ClipScope</Product>
+    <Company>ClipScope contributors (development)</Company>
+    <Authors>ClipScope contributors</Authors>
+    <Description>Local clipboard history with source context for Windows 11.</Description>
+    <Copyright>Copyright (c) 2026 ClipScope contributors. Development publisher placeholder.</Copyright>
+    <RepositoryUrl>https://github.com/kingnazz/ClipScope</RepositoryUrl>
+  </PropertyGroup>
+</Project>

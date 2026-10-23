@@ -40,6 +40,8 @@ internal sealed partial class MainWindow : Window
         _paths = paths; _log = log; _settingsStore = settingsStore; _settings = settings;
         _repository = repository; _media = new(paths, log);
         Title = "ClipScope";
+        try { AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "ClipScope.ico")); }
+        catch (Exception error) { _log.Write("app.icon_failed", error); }
         SystemBackdrop = new MicaBackdrop { Kind = MicaKind.Base };
         _statusTimer = DispatcherQueue.CreateTimer();
         _statusTimer.Interval = TimeSpan.FromSeconds(2.5); _statusTimer.IsRepeating = false;
