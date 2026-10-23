@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using ClipScope.App.Design;
 using ClipScope.Core;
-using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -13,7 +12,6 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.System;
-using Windows.UI.Core;
 
 namespace ClipScope.App;
 
@@ -40,6 +38,7 @@ internal sealed partial class MainWindow
     private bool _compact;
 
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint hwnd);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
 
     private void BuildShell()
     {
@@ -354,8 +353,10 @@ internal sealed partial class MainWindow
         }
     }
 
-    private static bool IsCtrlDown()
-        => InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(CoreVirtualKeyStates.Down);
+    // Physical state, not the UI thread's synchronized key state: after the global shortcut
+    // the thread may never have seen Ctrl released (it was pressed in another app), and a
+    // stale "down" would turn Enter (paste) into Ctrl+Enter (copy).
+    private static bool IsCtrlDown() => (GetAsyncKeyState(0x11) & 0x8000) != 0;
 
     private async void OnSearchKeyDown(object sender, KeyRoutedEventArgs args)
     {
