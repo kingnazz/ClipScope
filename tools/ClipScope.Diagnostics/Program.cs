@@ -62,6 +62,7 @@ else
             latest = JsonSerializer.Deserialize<Clip>(payload);
         PngPreview? Preview(string? relative) => relative is null ? null : PngPreview.Read(File.ReadAllBytes(paths.ResolveMedia(relative)), 320);
         Console.WriteLine(JsonSerializer.Serialize(new { clips = Scalar("SELECT COUNT(*) FROM clips;"),
+            kindCounts = new { text = Scalar("SELECT COUNT(*) FROM clips WHERE kind=0;"), images = Scalar("SELECT COUNT(*) FROM clips WHERE kind=1;"), files = Scalar("SELECT COUNT(*) FROM clips WHERE kind=2;") },
             payloadHits = Scalar("SELECT COUNT(*) FROM clips WHERE instr(payload,$value)>0;", needle),
             metadataHits = Scalar("SELECT COUNT(*) FROM clips WHERE instr(title,$value)>0 OR instr(app,$value)>0;", needle),
             ftsHits = Scalar("SELECT COUNT(*) FROM clips_fts WHERE clips_fts MATCH $value;", "\"" + needle.Replace("\"", "\"\"") + "\""),

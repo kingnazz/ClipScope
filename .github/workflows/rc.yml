@@ -46,12 +46,19 @@ jobs:
       - name: Validate installed application and data policy
         shell: pwsh
         run: |
-          dotnet restore tools/ClipScope.Diagnostics --locked-mode
-          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic restore failed' }
-          dotnet build tools/ClipScope.Diagnostics -c Release --no-restore -warnaserror
-          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic build failed' }
-          ./scripts/test-installer.ps1
-          ./scripts/benchmark-search.ps1
+          try {
+            $lines = @(dotnet restore tools/ClipScope.Diagnostics --locked-mode 2>&1)
+            $lines | Write-Output
+            if ($LASTEXITCODE -ne 0) { throw ('Diagnostic restore: ' + (($lines | Select-Object -Last 12) -join "`n")) }
+            $lines = @(dotnet build tools/ClipScope.Diagnostics -c Release --no-restore -warnaserror 2>&1)
+            $lines | Write-Output
+            if ($LASTEXITCODE -ne 0) { throw ('Diagnostic build: ' + (($lines | Select-Object -Last 12) -join "`n")) }
+            ./scripts/test-installer.ps1
+            ./scripts/benchmark-search.ps1
+          } catch {
+            Write-Output ('::error title=RC validation::' + $_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A') + " at line $($_.InvocationInfo.ScriptLineNumber)")
+            throw
+          }
       - name: Test real applications, exclusions and Explorer recovery
         shell: powershell
         run: ./scripts/compat-windows.ps1

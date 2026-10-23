@@ -6,7 +6,8 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'windows-test-profile.ps1')
 . (Join-Path $PSScriptRoot 'rc-version.ps1')
 Assert-IsolatedDesktopRunner
-if (-not [Environment]::UserInteractive) { throw 'Installed acceptance requires an interactive desktop.' }
+# The STA functional smoke below requires an actual foreground-capable desktop;
+# do not infer it from PowerShell 7's host-level UserInteractive flag.
 $version = Get-ClipScopeVersion
 $root = Split-Path $PSScriptRoot -Parent
 $output = [IO.Path]::GetFullPath((Join-Path $root $OutputDirectory))

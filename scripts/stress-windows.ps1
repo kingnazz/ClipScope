@@ -116,13 +116,20 @@ try {
     Start-Sleep -Seconds 10
     Sample-Resources 'settled'
     $probe = Get-RcProbe $data 'endurance'
-    if ($probe.clips -lt [int]($Operations * 0.9)) { throw 'Too many clipboard operations failed to persist.' }
+    $expectedImages = [int][Math]::Ceiling($Operations / 10.0)
+    if ($probe.kindCounts.images -ne $expectedImages -or $probe.kindCounts.text -ne ($Operations - $expectedImages)) { throw 'Generated text/image operation counts differ from persisted clips.' }
     $elapsedMinutes = $session.Elapsed.TotalMinutes
     Stop-RcApp $exe $app
-    if (-not $counter.WaitForExit(15000)) { $counter.Kill(); throw 'Managed counter collection did not stop with the app.' }
+    if (-not $counter.WaitForExit(15000)) {
+        # The diagnostic CLI can leave its console reader alive after exporting.
+        # Stop only the observer after the application has exited; require the
+        # full-duration exported series below, not merely a non-empty file.
+        $counter.Kill(); $counter.WaitForExit()
+        Write-Output '::notice title=RC diagnostic observer::Counter CLI remained alive after app exit; observer stopped after export.'
+    }
     if (-not (Test-Path $counterFile) -or (Get-Item $counterFile).Length -lt 100) { throw 'No managed heap evidence was recorded.' }
     $heap = @(Import-Csv -LiteralPath $counterFile | Where-Object { $_.'Counter Name' -eq 'GC Heap Size (MB)' } | ForEach-Object { [double]::Parse($_.'Mean/Increment',[Globalization.CultureInfo]::InvariantCulture) })
-    if ($heap.Count -lt 2) { throw 'Managed heap counter samples are missing.' }
+    if ($heap.Count -lt [int]($Minutes * 60 / 5 * 0.8)) { throw 'Managed heap counter series does not cover the requested session.' }
     $heapSummary = @{ firstMB=$heap[0]; lastMB=$heap[$heap.Count-1]; minMB=($heap | Measure-Object -Minimum).Minimum; maxMB=($heap | Measure-Object -Maximum).Maximum; samples=$heap.Count }
     $trend = @(); for ($sampleIndex = 0; $sampleIndex -lt $samples.Count; $sampleIndex += 10) {
         $point = $samples[$sampleIndex]
