@@ -95,7 +95,9 @@ public sealed class StorageTests : IAsyncLifetime
     public async Task DeletionUpdatesFtsAndContextCannotResurrectDeletedClip()
     {
         var clip = Item(); await Add(clip);
+        Assert.False(Assert.Single(await _repository.SearchAsync(new("192"), ct: TestContext.Current.CancellationToken)).HasContextScreenshot);
         Assert.True(await _repository.AttachContextAsync(clip.Id, "media/a.png", "thumbnails/a.png", null, ct: TestContext.Current.CancellationToken));
+        Assert.True(Assert.Single(await _repository.SearchAsync(new("192"), ct: TestContext.Current.CancellationToken)).HasContextScreenshot);
         var references = await _repository.DeleteAsync(clip.Id, ct: TestContext.Current.CancellationToken);
         Assert.Contains("media/a.png", references); Assert.Empty(await _repository.SearchAsync(new("192"), ct: TestContext.Current.CancellationToken));
         Assert.False(await _repository.AttachContextAsync(clip.Id, "media/b.png", "thumbnails/b.png", null, ct: TestContext.Current.CancellationToken));

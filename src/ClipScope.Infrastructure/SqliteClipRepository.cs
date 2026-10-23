@@ -127,7 +127,8 @@ public sealed partial class SqliteClipRepository(DataPaths paths, IDiagnosticLog
             ClipFilter.Files => "AND c.kind=2", ClipFilter.Pinned => "AND c.pinned=1", _ => ""
         };
         cmd.CommandText = $"""
-            SELECT c.id,c.kind,c.preview,c.created,c.app,c.title,c.pinned,c.thumbnail,c.icon
+            SELECT c.id,c.kind,c.preview,c.created,c.app,c.title,c.pinned,c.thumbnail,c.icon,
+                   json_extract(c.payload,'$.ContextScreenshotPath') IS NOT NULL
             FROM clips c WHERE 1=1 {search} {filter} ORDER BY c.created DESC,c.rowid DESC LIMIT $limit OFFSET $offset;
             """;
         if (terms.Length > 0) Add(cmd, "$query", string.Join(" AND ", terms));
@@ -139,7 +140,8 @@ public sealed partial class SqliteClipRepository(DataPaths paths, IDiagnosticLog
             ct.ThrowIfCancellationRequested();
             results.Add(new(Guid.Parse(reader.GetString(0)), (ClipKind)reader.GetInt32(1), reader.GetString(2),
                 new DateTimeOffset(reader.GetInt64(3), TimeSpan.Zero), reader.GetString(4), reader.GetString(5),
-                reader.GetBoolean(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetString(8)));
+                reader.GetBoolean(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetString(8),
+                reader.GetBoolean(9)));
         }
         return Task.FromResult<IReadOnlyList<ClipSummary>>(results);
     }

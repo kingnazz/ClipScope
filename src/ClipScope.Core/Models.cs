@@ -58,7 +58,7 @@ public sealed record Clip
 }
 
 public sealed record ClipSummary(Guid Id, ClipKind Kind, string Preview, DateTimeOffset CreatedUtc,
-    string SourceApp, string WindowTitle, bool IsPinned, string? ThumbnailPath, string? IconPath)
+    string SourceApp, string WindowTitle, bool IsPinned, string? ThumbnailPath, string? IconPath, bool HasContextScreenshot = false)
 {
     public string LocalTime => CreatedUtc.ToLocalTime().ToString("MMM d · HH:mm");
     public string TypeLabel => Kind.ToString();
