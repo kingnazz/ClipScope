@@ -40,6 +40,33 @@ and FTS synchronization, late context attachment, age and budget eviction, pinne
 budget overflow, pin/cleanup race prevention, settings corruption/serialization,
 orphan grace/path containment and content-free diagnostic log rotation.
 
+## Premium UI pass (2026-10-23, branch `feat/premium-ui-v1`)
+
+Windows evidence comes from GitHub Actions `windows-latest` runs of `scripts/validate.ps1`,
+`scripts/smoke-windows.ps1` and the new `scripts/capture-ui-windows.ps1` on the PR head.
+
+| Check | Observed result |
+| --- | --- |
+| Full Release desktop/solution build, warnings as errors | Passed on Windows CI; 0 warnings, 0 errors |
+| Core tests (policies + new presentation helpers) | 56 passed, 0 failed (17 existing + 39 new cases) |
+| Infrastructure tests (real SQLite/FTS5) | 21 passed, 0 failed (one test extended for the snapshot flag) |
+| Automated tests on Windows CI | 77 passed, 0 failed, 0 skipped (baseline was 38) |
+| Windows desktop functional smoke | Passed against the redesigned UI (same coverage as before) |
+| UI screenshot capture | 18 screenshots: dark/light, empty, populated, text, code, image, files, source snapshot, pinned, search, no results, settings pages, ~900 px and ~1700 px widths |
+| Linux C# diagnostic build of the WinUI app | Passed; 0 warnings, 0 errors |
+
+The smoke script now retries a transient `ExternalException` from `Clipboard.GetText`
+while another process (including ClipScope checking its own restore) holds the
+clipboard; the assertion and deadline are unchanged. Smoke also caught a real
+regression during the pass (Enter copying instead of pasting after the global
+shortcut because of stale thread key state), fixed by reading physical key state.
+
+Screenshots were reviewed on a 1920×1080, 100% scale runner (Windows Server, where
+Mica falls back to a solid backdrop). Not verified: Windows 11 Mica appearance,
+high-DPI/mixed-DPI monitors, high contrast, Narrator/screen-reader output, touch,
+real third-party source applications and long-running sessions. These require a
+physical Windows 11 review.
+
 ## Desktop functional evidence
 
 `scripts/smoke-windows.ps1` ran successfully (not skipped) on the Windows CI runner.
@@ -123,7 +150,9 @@ remain open until exercised on an interactive Windows desktop.
 - Data is unencrypted. Pinned media can exceed budget; ordinary deletion is not
   secure erasure. Old orphan media has a one-hour grace period.
 - Tray icon is currently the shared Windows application icon. UI accessibility,
-  DPI, visual polish and startup behavior need physical review.
+  DPI, Mica on Windows 11 and startup behavior need physical review.
+- Source snapshots include a black band at the window's invisible resize borders
+  (capture uses the full window rectangle); cropping to the DWM frame is a follow-up.
 - Document context beyond copied paths/window titles and all Phase 2 features are
   deferred. There is no installer, release, auto-update, AI or network service.
 
