@@ -52,7 +52,8 @@ internal static class SettingsLayout
         {
             grid.RowDefinitions.Add(new() { Height = GridLength.Auto });
             Grid.SetRow(below, 1); Grid.SetColumn(below, 1); Grid.SetColumnSpan(below, 2); grid.Children.Add(below);
-            if (string.IsNullOrEmpty(AutomationProperties.GetName(below))) AutomationProperties.SetName(below, header);
+            // Name only interactive content after the card; text (status, paths) keeps its own text as its name.
+            if (below is Control && string.IsNullOrEmpty(AutomationProperties.GetName(below))) AutomationProperties.SetName(below, header);
         }
         return new Border { Style = Ui.Style("CsSettingsCardStyle"), Child = grid, Margin = new Thickness(0, 0, 0, 2) };
     }
