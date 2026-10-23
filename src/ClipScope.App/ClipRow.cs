@@ -87,10 +87,10 @@ public sealed partial class ClipRow : INotifyPropertyChanged, IDisposable
         return bitmap;
         async Task LoadAsync()
         {
-            var loaded = await StoredImage.LoadAsync(bitmap, path, _imageCancellation.Token);
+            var loaded = await StoredImage.LoadAsync(bitmap, path, decodeWidth, _imageCancellation.Token);
             if (_disposed) return;
-            if (icon) { _iconLoaded = loaded; PropertyChanged?.Invoke(this, new(nameof(FallbackIconVisibility))); }
-            else { _thumbnailFailed = !loaded; PropertyChanged?.Invoke(this, new(nameof(ThumbnailVisibility))); }
+            if (icon) { _iconLoaded = loaded is not null; PropertyChanged?.Invoke(this, new(nameof(FallbackIconVisibility))); }
+            else { _thumbnailFailed = loaded is null; PropertyChanged?.Invoke(this, new(nameof(ThumbnailVisibility))); }
         }
     }
     public void Dispose()

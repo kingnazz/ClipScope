@@ -180,7 +180,7 @@ internal sealed class ClipDetailView
         var panel = new StackPanel { Spacing = Ui.Space2 };
         var frame = new Border { Style = Ui.Style("CsCardStyle"), Padding = Ui.Pad(Ui.Space3), HorizontalAlignment = HorizontalAlignment.Left };
         var caption = Ui.Text("CsTertiaryTextStyle");
-        var image = LoadImage(relative, 1600, 440);
+        var image = LoadImage(relative, 1600, 440, size => caption.Text = $"{size.Width:N0} × {size.Height:N0} pixels");
         if (image is null) { panel.Children.Add(Note(Glyph.Warning, "This image is no longer available on disk.")); return panel; }
         frame.Child = image;
         caption.Text = "Image";
@@ -320,28 +320,33 @@ internal sealed class ClipDetailView
             image.MaxHeight = Math.Min(maxHeight, height / scale);
         }
     }
-    private Image? LoadImage(string relative, int decodeWidth, double maxHeight)
+    private FrameworkElement? LoadImage(string relative, int decodeWidth, double maxHeight, Action<PngPreview>? decoded = null)
     {
         var path = _resolve(relative);
         if (path is null) return null;
         var image = new Image { Stretch = Stretch.Uniform, MaxHeight = maxHeight, HorizontalAlignment = HorizontalAlignment.Left,
             Opacity = 0, OpacityTransition = new ScalarTransition { Duration = TimeSpan.FromMilliseconds(120) } };
+        var host = new Grid();
+        var unavailable = Note(Glyph.Warning, "Image preview unavailable; the file may have been removed or damaged.");
+        unavailable.Visibility = Visibility.Collapsed;
+        host.Children.Add(image); host.Children.Add(unavailable);
         var bitmap = new BitmapImage { DecodePixelWidth = decodeWidth, DecodePixelType = DecodePixelType.Physical };
         var ct = _imageCancellation.Token;
         // The awaited decode cannot miss an ImageOpened event from a cached URI.
         _ = LoadAsync();
-        return image;
+        return host;
         async Task LoadAsync()
         {
-            var loaded = await StoredImage.LoadAsync(bitmap, path, ct);
+            var loaded = await StoredImage.LoadAsync(bitmap, path, decodeWidth, ct);
             if (ct.IsCancellationRequested) return;
-            if (!loaded)
+            if (loaded is null)
             {
-                image.Opacity = 1;
-                AutomationProperties.SetName(image, "Image preview unavailable; the file may have been removed.");
+                image.Visibility = Visibility.Collapsed;
+                unavailable.Visibility = Visibility.Visible;
                 return;
             }
-            _images.Add((image, bitmap.PixelWidth, bitmap.PixelHeight, maxHeight));
+            _images.Add((image, loaded.Width, loaded.Height, maxHeight));
+            decoded?.Invoke(loaded);
             UpdateImageScale(Math.Max(1, _root.XamlRoot?.RasterizationScale ?? 1));
             image.Source = bitmap;
             image.Opacity = 1;
