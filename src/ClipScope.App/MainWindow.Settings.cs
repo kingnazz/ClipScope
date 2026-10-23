@@ -17,7 +17,7 @@ namespace ClipScope.App;
 internal sealed partial class MainWindow
 {
     private Grid? _settingsView;
-    private bool _settingsBusy;
+    private bool _settingsBusy, _startupRepairRequired;
     private readonly SemaphoreSlim _settingsGate = new(1);
 
     private void ShowSettings()
@@ -253,8 +253,9 @@ internal sealed partial class MainWindow
                 await SettingsTransaction.SaveAsync(updated,
                     async () => hotkey == current.Shortcut ? null : await _native.PrepareHotkeyAsync(hotkey)
                         ?? throw new InvalidOperationException("The shortcut could not be reserved."),
-                    () => updated.LaunchAtStartup == current.LaunchAtStartup ? null : StartupIntegration.Prepare(updated.LaunchAtStartup),
+                    () => !_startupRepairRequired && updated.LaunchAtStartup == current.LaunchAtStartup ? null : StartupIntegration.Prepare(updated.LaunchAtStartup),
                     value => _settingsStore.SaveAsync(value));
+                _startupRepairRequired = false;
                 _settings = updated; UpdateRecordingState(); UpdateShortcutHints(); UpdateEmptyState();
                 _settingsBusy = false; CloseSettings(); FlashStatus("Settings saved");
                 _ = Task.Run(async () =>
@@ -266,6 +267,7 @@ internal sealed partial class MainWindow
             catch (Exception e)
             {
                 _log.Write("settings.save_failed", e);
+                if (e is SettingsRollbackException) _startupRepairRequired = true;
                 error.Text = e is SettingsRollbackException
                     ? "Windows could not restore its startup registration. Check Start with Windows and retry Save before exiting."
                     : "Could not save settings. Check the values, shortcut availability and storage permissions.";

@@ -29,7 +29,7 @@ public sealed class NativeHost : IDisposable
     public event Action<CapturedClip>? Captured;
     public event Action<nint>? OpenRequested;
     public event Action? SettingsRequested;
-    public event Action? PauseRequested;
+    public event Action<bool>? CaptureEnabledRequested;
     public event Action? ExitRequested;
     public bool TrayAvailable { get; private set; }
     public Task Ready => _ready.Task;
@@ -145,7 +145,8 @@ public sealed class NativeHost : IDisposable
         try
         {
             Native.AppendMenu(menu, 0, 1, "Open ClipScope");
-            Native.AppendMenu(menu, 0, 2, _settings().CaptureEnabled ? "Pause clipboard capture" : "Resume clipboard capture");
+            var captureEnabled = _settings().CaptureEnabled;
+            Native.AppendMenu(menu, 0, 2, captureEnabled ? "Pause clipboard capture" : "Resume clipboard capture");
             Native.AppendMenu(menu, 0, 3, "Settings"); Native.AppendMenu(menu, 0, 4, "Exit");
             Native.GetCursorPos(out var cursor);
             var previous = Native.GetForegroundWindow();
@@ -153,7 +154,7 @@ public sealed class NativeHost : IDisposable
             switch (Native.TrackPopupMenu(menu, 0x0100 | 0x0002, cursor.X, cursor.Y, 0, _window, 0))
             {
                 case 1: OpenRequested?.Invoke(previous); break;
-                case 2: PauseRequested?.Invoke(); break;
+                case 2: CaptureEnabledRequested?.Invoke(!captureEnabled); break;
                 case 3: OpenRequested?.Invoke(previous); SettingsRequested?.Invoke(); break;
                 case 4: ExitRequested?.Invoke(); break;
             }

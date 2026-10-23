@@ -53,7 +53,7 @@ internal sealed partial class MainWindow : Window
         _capture.HistoryChanged += () => DispatcherQueue.TryEnqueue(() => _ = RefreshAsync());
         _native.OpenRequested += hwnd => DispatcherQueue.TryEnqueue(() => ShowHistory(hwnd));
         _native.SettingsRequested += () => DispatcherQueue.TryEnqueue(ShowSettings);
-        _native.PauseRequested += () => DispatcherQueue.TryEnqueue(() => _ = TogglePauseAsync());
+        _native.CaptureEnabledRequested += enabled => DispatcherQueue.TryEnqueue(() => _ = SetCaptureEnabledAsync(enabled));
         _native.ExitRequested += () => DispatcherQueue.TryEnqueue(() => _ = ExitAsync());
         AppWindow.Closing += (sender, args) =>
         {
@@ -209,17 +209,20 @@ internal sealed partial class MainWindow : Window
         await Task.Run(async () => _media.Delete(await _repository.DeleteAsync(clip.Id)));
         await RefreshAsync(); FlashStatus("Clip deleted");
     });
-    private async Task TogglePauseAsync()
+    private Task TogglePauseAsync() => SetCaptureEnabledAsync(!_settings.CaptureEnabled);
+    private async Task SetCaptureEnabledAsync(bool enabled)
     {
         if (_exiting) return;
         await _settingsGate.WaitAsync();
         try
         {
-            var updated = _settings with { CaptureEnabled = !_settings.CaptureEnabled };
-            // Stop immediately, before disk I/O; failed persistence never resumes capture.
-            _settings = updated; UpdateRecordingState(); UpdateEmptyState(); await _settingsStore.SaveAsync(updated);
+            var updated = _settings with { CaptureEnabled = enabled };
+            // Pause immediately; resume only after persistence succeeds.
+            if (!enabled) { _settings = updated; UpdateRecordingState(); UpdateEmptyState(); }
+            await _settingsStore.SaveAsync(updated);
+            _settings = updated; UpdateRecordingState(); UpdateEmptyState();
         }
-        catch (Exception e) { _log.Write("settings.pause_failed", e); Notice("Recording state changed for this session, but could not be saved."); }
+        catch (Exception e) { _log.Write("settings.pause_failed", e); Notice("Recording state could not be saved. Recording remains paused for this session."); }
         finally { _settingsGate.Release(); }
     }
     private void ApplyAppearance()
