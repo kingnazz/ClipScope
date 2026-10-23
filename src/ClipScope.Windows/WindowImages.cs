@@ -52,7 +52,14 @@ public static class WindowImages
             try { if (!Native.PrintWindow(hwnd, dc, 2)) return null; }
             finally { graphics.ReleaseHdc(dc); }
         }
-        using var scaled = Scale(bitmap, 2560);
+        // PrintWindow renders the entire window, including invisible resize borders.
+        // Crop only a valid, contained DWM frame; unavailable/odd bounds keep the
+        // original window-only capture. There is deliberately no desktop fallback.
+        PixelBounds? frame = Native.DwmGetWindowAttribute(hwnd, 9, out var visible, 16) == 0
+            ? new(visible.Left, visible.Top, visible.Right, visible.Bottom) : null;
+        var crop = WindowGeometry.VisibleCrop(new(rect.Left, rect.Top, rect.Right, rect.Bottom), frame);
+        using var cropped = bitmap.Clone(new Rectangle(crop.X, crop.Y, crop.Width, crop.Height), bitmap.PixelFormat);
+        using var scaled = Scale(cropped, 2560);
         return (Png(scaled), Thumbnail(scaled));
     }
     public static byte[]? ApplicationIcon(string? executable)
