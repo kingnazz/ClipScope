@@ -34,6 +34,8 @@ try {
         Sort-Object { [version]::new($_.VersionInfo.FileMajorPart,$_.VersionInfo.FileMinorPart,$_.VersionInfo.FileBuildPart,$_.VersionInfo.FilePrivatePart) } -Descending | Select-Object -First 1
     $crt = if ($crtFile) { $crtFile.DirectoryName } else { $null }
     if (-not $crt) { throw 'The x64 release CRT redistribution payload was not found.' }
+    $crtVersion = [version]::new($crtFile.VersionInfo.FileMajorPart,$crtFile.VersionInfo.FileMinorPart,$crtFile.VersionInfo.FileBuildPart,$crtFile.VersionInfo.FilePrivatePart).ToString()
+    if ($crtVersion -ne $version.Crt) { throw "Expected release CRT $($version.Crt); found $crtVersion. Update the toolchain deliberately and revalidate." }
     Get-ChildItem -LiteralPath $crt -Filter '*.dll' | Copy-Item -Destination $stage
     Write-Output "::notice title=RC runtime toolchain::App-local release CRT $($crtFile.VersionInfo.FileVersion)"
     $licenses = Join-Path $stage 'licenses'
@@ -53,6 +55,7 @@ try {
     Copy-Item -Path 'packaging/licenses/*' -Destination $licenses
     $runtimeConfig = Get-Content -LiteralPath (Join-Path $stage 'ClipScope.App.runtimeconfig.json') -Raw | ConvertFrom-Json -AsHashtable
     $runtimeVersion = @($runtimeConfig.runtimeOptions.includedFrameworks | Where-Object { $_.name -eq 'Microsoft.NETCore.App' })[0].version
+    if ($runtimeVersion -ne $version.Runtime) { throw 'Published .NET runtime differs from the pinned toolchain.' }
     $runtimePackage = Join-Path $nuget "microsoft.netcore.app.runtime.win-x64/$runtimeVersion"
     foreach ($notice in @('LICENSE.TXT','THIRD-PARTY-NOTICES.TXT')) {
         Copy-Item -LiteralPath (Join-Path $runtimePackage $notice) -Destination (Join-Path $licenses ".NET-$notice")
@@ -76,8 +79,11 @@ try {
     $files = @(Get-ChildItem -LiteralPath $stage -File -Recurse | ForEach-Object { [IO.Path]::GetRelativePath($stage, $_.FullName) } | Sort-Object)
     @($files + 'install-files.txt') | Set-Content -LiteralPath (Join-Path $stage 'install-files.txt') -Encoding utf8
     $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
-    $compilerVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($compiler).ProductVersion
-    if ($compilerVersion -notlike "$($version.Compiler)*") { throw "Expected Inno Setup $($version.Compiler); found $compilerVersion." }
+    $compilerHelp = (& $compiler '/?' 2>&1) -join "`n"
+    $engine = [regex]::Match($compilerHelp, 'Compiler engine version:\s*Inno Setup\s+([0-9]+\.[0-9]+\.[0-9]+)')
+    if (-not $engine.Success) { throw 'Could not read the Inno compiler engine version from its banner.' }
+    $compilerVersion = $engine.Groups[1].Value
+    if ($compilerVersion -ne $version.Compiler) { throw "Expected Inno Setup $($version.Compiler); found $compilerVersion." }
     $compile = @("/DPayload=$stage", "/DOutput=$output", "/DAppVersion=$($version.Version)",
         "/DFileVersion=$($version.FileVersion)", "/DPublisher=$($version.Publisher)", "/DAppId=$($version.AppId)", 'packaging/ClipScope.iss')
     if ($SigningCommand) {

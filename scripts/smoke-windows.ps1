@@ -102,6 +102,7 @@ $source.Show()
     $source.Activate(); $source.BringToFront()
     [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
     if ([ClipScopeSmokeNative]::GetForegroundWindow() -ne $source.Handle) {
+        if ($RequireDesktop) { throw 'Installed acceptance requires real foreground activation.' }
         Write-Output '::notice title=ClipScope desktop smoke::SKIPPED: runner denies foreground activation; launch verified only'
         exit 0
     }

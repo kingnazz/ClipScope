@@ -69,6 +69,20 @@ try {
     [System.Windows.Forms.SendKeys]::SendWait('^a^v^a^c')
     Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $text } 'Notepad real paste roundtrip'
 
+    # Exercise the installed Settings integration, including successful removal.
+    foreach ($enableStartup in @($true,$false)) {
+        Open-RcHistory $app; Invoke-RcAction 'Settings'
+        Wait-Rc { $script:startupToggle = Get-RcPattern 'Start with Windows' ([System.Windows.Automation.TogglePattern]::Pattern); $null -ne $script:startupToggle } 'startup toggle'
+        $script:startupToggle.Toggle(); Invoke-RcAction 'Save'
+        Wait-Rc { (Get-Content (Join-Path $data 'settings.json') -Raw | ConvertFrom-Json).LaunchAtStartup -eq $enableStartup } 'startup preference saved'
+        $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run')
+        try { $entry = $key.GetValue('ClipScope',$null) } finally { $key.Dispose() }
+        if ($enableStartup -and $entry -ne ('"' + $exe + '" --background')) { throw 'Settings enabled an incorrect startup path.' }
+        if (-not $enableStartup -and $null -ne $entry) { throw 'Settings did not remove startup registration.' }
+        Close-RcHistory
+    }
+    $results.Add(@{ app='Installed startup Settings'; result='PASS enable/disable exact one HKCU Run value; real sign-in NOT TESTED' })
+
     # Configure a real application's exclusion through the shipped Settings UI.
     Open-RcHistory $app; Invoke-RcAction 'Settings'
     Wait-Rc { $script:section = Get-RcPattern 'Privacy' ([System.Windows.Automation.SelectionItemPattern]::Pattern); $null -ne $script:section } 'Privacy section'

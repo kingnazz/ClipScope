@@ -64,8 +64,13 @@ try {
     }
     # Move staging out of the expected location: execution must use only installed files.
     Move-Item -LiteralPath $payload -Destination ($payload + '-not-in-use')
-    & powershell.exe -NoProfile -STA -File (Join-Path $PSScriptRoot 'smoke-windows.ps1') -ExecutablePath $exe -RequireDesktop
-    if ($LASTEXITCODE -ne 0) { throw 'Installed functional smoke failed.' }
+    $sourceTree = Join-Path $root 'src'
+    $movedSource = Join-Path $root 'src-unavailable-for-installed-smoke'
+    Move-Item -LiteralPath $sourceTree -Destination $movedSource
+    try {
+        & powershell.exe -NoProfile -STA -File (Join-Path $PSScriptRoot 'smoke-windows.ps1') -ExecutablePath $exe -RequireDesktop
+        if ($LASTEXITCODE -ne 0) { throw 'Installed functional smoke failed.' }
+    } finally { Move-Item -LiteralPath $movedSource -Destination $sourceTree }
     Write-Output '::notice title=RC installer::PASS: fresh per-user install, payload hashes, metadata, Start Menu, installed functional smoke independent of staging'
     Invoke-Setup (Join-Path $install 'unins000.exe')
     if (Test-Path $data) { throw 'Smoke did not release its owned test profile.' }
@@ -122,9 +127,22 @@ try {
     $app = Start-Process -FilePath $exe -ArgumentList '--background' -PassThru
     Start-Sleep -Seconds 3
     if ($app.HasExited) { throw 'Quiet installed launch exited.' }
+    $app.Refresh()
+    if ($app.MainWindowHandle -ne [IntPtr]::Zero) { throw 'Quiet startup opened a visible main window.' }
     $duplicate = Start-Process -FilePath $exe -ArgumentList '--background' -Wait -PassThru
     if ($duplicate.ExitCode -ne 0 -or @(Get-Process -Name 'ClipScope.App').Count -ne 1) { throw 'Single-instance quiet activation failed.' }
     $duplicate.Dispose()
+    $app.Refresh()
+    if ($app.MainWindowHandle -ne [IntPtr]::Zero) { throw 'Quiet duplicate activated the main window.' }
+    $duplicate = Start-Process -FilePath $exe -Wait -PassThru
+    if ($duplicate.ExitCode -ne 0) { throw 'Foreground duplicate activation failed.' }
+    $duplicate.Dispose()
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do { $app.Refresh(); if ($app.MainWindowHandle -ne [IntPtr]::Zero) { break }; Start-Sleep -Milliseconds 100 } while ([DateTime]::UtcNow -lt $deadline)
+    if ($app.MainWindowHandle -eq [IntPtr]::Zero -or @(Get-Process -Name 'ClipScope.App').Count -ne 1) { throw 'Foreground duplicate did not activate the existing instance.' }
+    [void](Start-Process -FilePath $shortcut -PassThru)
+    Start-Sleep -Seconds 1
+    if (@(Get-Process -Name 'ClipScope.App').Count -ne 1) { throw 'Start Menu launch created another instance.' }
     # Reinstallation is the supported repair operation; it must close the running app.
     Invoke-Setup $installer
     if (Get-Process -Name 'ClipScope.App' -ErrorAction SilentlyContinue) { throw 'Installer did not close the installed app.' }
