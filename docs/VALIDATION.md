@@ -151,8 +151,9 @@ remain open until exercised on an interactive Windows desktop.
   secure erasure. Old orphan media has a one-hour grace period.
 - Tray icon is currently the shared Windows application icon. UI accessibility,
   DPI, Mica on Windows 11 and startup behavior need physical review.
-- Source snapshots include a black band at the window's invisible resize borders
-  (capture uses the full window rectangle); cropping to the DWM frame is a follow-up.
+- Source snapshots crop contained DWM visible-frame bounds; invalid or unavailable
+  DWM bounds retain the original window-only capture. GPU/protected-window capture
+  remains best-effort.
 - Document context beyond copied paths/window titles and all Phase 2 features are
   deferred. There is no installer, release, auto-update, AI or network service.
 
@@ -161,5 +162,6 @@ remain open until exercised on an interactive Windows desktop.
 acceptance remains necessary before calling the Phase 1 definition of done complete. This score is an engineering estimate, not
 an automated test metric.
 
-Representative captures from the final CI run are in `docs/screenshots/`
+Representative captures from the premium UI baseline are in `docs/screenshots/`
 (synthetic clips; the source window is a test form hosted by Windows PowerShell).
+Hardening evidence and remaining checks are in [PREMIUM_UI_REVIEW.md](PREMIUM_UI_REVIEW.md).

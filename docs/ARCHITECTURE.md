@@ -142,3 +142,21 @@ UI Automation names are part of the contract with `scripts/smoke-windows.ps1`:
 the search box is "Search clipboard history" and the detail actions are "Paste",
 "Copy", "Pin"/"Unpin" and "Delete". Keep decorative labels from reusing those exact
 names. `scripts/capture-ui-windows.ps1` captures review screenshots in CI.
+
+
+Presentation commands use search/selection generations to keep an awaited action
+bound to its original clip. Settings saves serialize with tray capture changes,
+retain the old hotkey while the replacement is reserved, and retain the exact
+startup registry value until the atomic settings-file replace succeeds. The
+in-window page cannot be dismissed while this transaction is running.
+
+Image previews decode through cancellable, delete-sharing streams with validated
+PNG dimensions and bounded width/height; retired rows and selection images release
+their sources. Current-monitor DPI changes update minimum window constraints and
+natural image sizing. DWM cropping trims only a contained part of the existing
+PrintWindow bitmap; it never samples the desktop.
+
+Desktop CI scripts require an isolated GitHub-hosted interactive runner. They
+refuse existing profiles and only clean directories they created with matching
+ownership markers, rejecting reparse points. Screenshot capture/upload are
+non-blocking review aids; the functional smoke and ownership checks are gates.
