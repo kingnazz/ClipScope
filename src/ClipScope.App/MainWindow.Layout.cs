@@ -41,6 +41,7 @@ internal sealed partial class MainWindow
     private (double Scale, int Width, int Height) _displayMetrics;
 
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint hwnd);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
 
     private void BuildShell()
     {
@@ -63,7 +64,8 @@ internal sealed partial class MainWindow
         // after the global shortcut) never reads as held here.
         _root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, args) => { if (IsCtrlKey(args.Key)) _ctrlHeld = true; }), true);
         _root.AddHandler(UIElement.KeyUpEvent, new KeyEventHandler((_, args) => { if (IsCtrlKey(args.Key)) _ctrlHeld = false; }), true);
-        Activated += (_, _) => _ctrlHeld = false;
+        Activated += (_, args) => _ctrlHeld = args.WindowActivationState != WindowActivationState.Deactivated
+            && (GetAsyncKeyState(0x11) & 0x8000) != 0;
         _root.ActualThemeChanged += (_, _) => UpdateCaptionButtons();
         _root.Loaded += (_, _) =>
         {
@@ -397,7 +399,9 @@ internal sealed partial class MainWindow
 
     // Neither the thread's synchronized key state (stale after the global shortcut) nor the
     // physical state (already released when a fast Ctrl+Enter is processed) is reliable here.
-    private bool IsCtrlDown() => _ctrlHeld;
+    // Event ownership preserves fast Ctrl+Enter; physical fallback also respects
+    // a Ctrl held across activation before this window has received a Ctrl key-down.
+    private bool IsCtrlDown() => _ctrlHeld || (GetAsyncKeyState(0x11) & 0x8000) != 0;
     private static bool IsCtrlKey(VirtualKey key) => key is VirtualKey.Control or VirtualKey.LeftControl or VirtualKey.RightControl;
 
     private async void OnSearchKeyDown(object sender, KeyRoutedEventArgs args)

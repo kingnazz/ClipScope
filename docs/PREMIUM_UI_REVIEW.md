@@ -10,6 +10,7 @@ features, replacement PR, installer or merge is included.
 | Severity | Finding at the reviewed baseline | Resolution / principal files |
 | --- | --- | --- |
 | High | Search freshness compared text alone. Pin/Delete used shared detail state, and an awaited detail load could retarget a command after selection changed. Filter/page changes and failed/cancelled searches could leave old rows actionable. | All entry points use one command resolver with search and selection generation fences, immutable clip/destination targets and a command busy guard. Pending/failed results are disabled; detail actions disappear immediately. CTS ownership stays with each operation. `MainWindow.cs`, `MainWindow.Layout.cs`, `HistorySession.cs`. |
+| High | Physical-only modifier polling could observe Ctrl released before a queued Ctrl+Enter handler and paste instead of copying. | Commands retain this window’s queued Ctrl key events with a physical fallback; activation reconciles the held state so a key-up missed in the source app cannot leave Ctrl stuck. The smoke checks both Ctrl+Enter and ordinary Enter after global activation. `MainWindow.Layout.cs`. |
 | High | Settings could be dismissed/reopened while Save continued. The old shortcut was released before persistence and rollback results were ignored. Startup rollback recreated the preference instead of restoring the original registry value. Tray changes could be overwritten by a stale draft. | Save prevents page dismissal/exit until completion, serializes settings mutations, merges unstaged capture changes, reserves the new shortcut while retaining the old registration, and retains the exact startup value/kind until persistence succeeds. Theme captions follow the preview. Rollback failures are explicit; a subsequent Save forces startup reconciliation. `MainWindow.Settings.cs`, `SettingsTransaction.cs`, `NativeHost.cs`, `StartupIntegration.cs`, `LocalStorage.cs`. |
 | High | The workflow recursively deleted `%LocalAppData%/ClipScope` before the capture script's existing-profile check. Fixed fixture paths could overwrite unrelated temp files. | Removed the blanket deletion. Both scripts require an isolated GitHub-hosted interactive runner, refuse existing profiles and clean only directories they created, with matching ownership markers and reparse-point checks. Temp fixtures use unique directories. Artifact upload and capture remain non-blocking. `build.yml`, `windows-test-profile.ps1`, desktop scripts. |
 | Medium | Clear history deleted media from an earlier maintenance snapshot. A screenshot attached between enumeration and deletion could be orphaned. | Conditional deletion rechecks pinned state and returns current media references under the writer gate and SQLite transaction. Clear and retention use that result; retention refreshes its orphan reference set. FTS deletion triggers remain intact. `Models.cs`, `SqliteClipRepository.cs`, `RetentionService.cs`, `MainWindow.Settings.cs`. |
@@ -39,8 +40,7 @@ than silently reported as a successful Save.
   resolver; copied file-list paths are not media references and are never deleted
   by clear/retention. Existing containment/orphan tests remain green.
 - **Global activation, second instance, tray and paste:** no additional defect
-  found beyond the command/settings races fixed above. Physical modifier state
-  remains based on `GetAsyncKeyState`; the clipboard/paste implementation remains.
+  found beyond the command/settings races fixed above. Modifier handling retains this window’s key events with physical fallback and activation reconciliation; the clipboard/paste implementation remains.
 - **Runtime XAML:** resources load inside the startup exception boundary before
   native capture starts. Startup failure uses the existing diagnostic/fallback
   window. Template bindings and semantic theme resources resolve in Windows CI.
@@ -95,3 +95,40 @@ remains pending the physical checks. PR #2 remains draft and unmerged.
 
 Engineering readiness: **94/100**. UI readiness: **87/100**. Release readiness:
 **74/100**. These are engineering estimates, not automated metrics.
+
+
+## Files changed during hardening
+
+```text
+.github/workflows/build.yml
+docs/ARCHITECTURE.md
+docs/PREMIUM_UI_REVIEW.md
+docs/VALIDATION.md
+scripts/capture-ui-windows.ps1
+scripts/smoke-windows.ps1
+scripts/test-windows-test-profile.ps1
+scripts/windows-test-profile.ps1
+src/ClipScope.App/ClipDetailView.cs
+src/ClipScope.App/ClipRow.cs
+src/ClipScope.App/MainWindow.Layout.cs
+src/ClipScope.App/MainWindow.Settings.cs
+src/ClipScope.App/MainWindow.cs
+src/ClipScope.App/StoredImage.cs
+src/ClipScope.Core/HistorySession.cs
+src/ClipScope.Core/Models.cs
+src/ClipScope.Core/PngPreview.cs
+src/ClipScope.Core/WindowGeometry.cs
+src/ClipScope.Infrastructure/LocalStorage.cs
+src/ClipScope.Infrastructure/RetentionService.cs
+src/ClipScope.Infrastructure/SettingsTransaction.cs
+src/ClipScope.Infrastructure/SqliteClipRepository.cs
+src/ClipScope.Windows/Native.cs
+src/ClipScope.Windows/NativeHost.cs
+src/ClipScope.Windows/StartupIntegration.cs
+src/ClipScope.Windows/WindowImages.cs
+tests/ClipScope.Core.Tests/HistorySessionTests.cs
+tests/ClipScope.Core.Tests/PngPreviewTests.cs
+tests/ClipScope.Core.Tests/WindowGeometryTests.cs
+tests/ClipScope.Infrastructure.Tests/SettingsTransactionTests.cs
+tests/ClipScope.Infrastructure.Tests/StorageTests.cs
+```
