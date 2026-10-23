@@ -215,7 +215,7 @@ $source.Show()
     throw
 } finally {
     if ($script:app -and -not $script:app.HasExited) {
-        Stop-Process -Id $script:app.Id -Force
+        $script:app.Kill()
         if (-not $script:app.WaitForExit(5000)) { throw 'Test process did not stop; profile left intact.' }
     }
     if ($source) { $source.Close(); $source.Dispose() }

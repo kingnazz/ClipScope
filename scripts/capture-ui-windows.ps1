@@ -70,7 +70,7 @@ function Start-ClipScope([int] $Theme) {
 }
 function Stop-ClipScope {
     if ($script:app -and -not $script:app.HasExited) {
-        Stop-Process -Id $script:app.Id -Force
+        $script:app.Kill()
         if (-not $script:app.WaitForExit(5000)) { throw 'Test process did not stop; profile left intact.' }
     }
     if ($script:app) { $script:app.Dispose(); $script:app = $null }
@@ -105,6 +105,14 @@ function Save-Window([string] $Name) {
             $crop = New-Object System.Drawing.Rectangle -ArgumentList @(($visible.Left - $rect.Left), ($visible.Top - $rect.Top), ($visible.Right - $visible.Left), ($visible.Bottom - $visible.Top))
             $cropped = $bitmap.Clone($crop, $bitmap.PixelFormat); $capture = $cropped
         }
+        # Reject a flat/black PrintWindow result instead of publishing misleading
+        # review evidence. Never fall back to photographing the desktop.
+        $colors = New-Object 'System.Collections.Generic.HashSet[int]'
+        $stepX = [Math]::Max(1, [int]($capture.Width / 64)); $stepY = [Math]::Max(1, [int]($capture.Height / 64))
+        for ($y = 0; $y -lt $capture.Height; $y += $stepY) {
+            for ($x = 0; $x -lt $capture.Width; $x += $stepX) { [void]$colors.Add($capture.GetPixel($x, $y).ToArgb()) }
+        }
+        if ($colors.Count -lt 8) { throw 'Test window rendering was blank; no desktop fallback is permitted.' }
         $capture.Save((Join-Path $out.FullName "$Name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
         Write-Output "Captured $Name ($($capture.Width) x $($capture.Height))"
     } finally { if ($cropped) { $cropped.Dispose() }; if ($graphics) { $graphics.Dispose() }; $bitmap.Dispose() }
@@ -255,10 +263,12 @@ function Copy-From([string] $Title, [scriptblock] $SetClipboard) {
     Write-Output '::warning title=ClipScope UI capture::Capture failed; no clipboard content is logged.'
     throw 'UI review capture failed. Functional smoke remains the release gate.'
 } finally {
-    Stop-ClipScope
+    $stopped = $false
+    try { Stop-ClipScope; $stopped = $true } finally {
     if ($source) { $source.Close(); $source.Dispose() }
     if ($editorFont) { $editorFont.Dispose() }
     [System.Windows.Forms.Clipboard]::Clear()
     Remove-OwnedTestDirectory $filesOwner
-    Remove-OwnedTestDirectory $profile
+    if ($stopped) { Remove-OwnedTestDirectory $profile }
+    }
 }
