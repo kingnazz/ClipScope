@@ -21,6 +21,7 @@ public static class ClipScopeSmokeNative {
     [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT rect, int size);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
     [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
     [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
 }
@@ -167,6 +168,24 @@ $source.Show()
     [System.Windows.Forms.SendKeys]::SendWait('^{ENTER}')
     Wait-Condition { [System.Windows.Forms.Clipboard]::GetText() -eq $fixture } 'Ctrl+Enter after immediate query change'
     if ($destination.Text.Length -ne 0) { throw 'Ctrl+Enter pasted instead of copying.' }
+    # Ctrl held in the source app across activation must still mean Copy, even
+    # though the WinUI window never received that Ctrl key-down.
+    [System.Windows.Forms.Clipboard]::Clear()
+    $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
+    try {
+        [ClipScopeSmokeNative]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero)
+        [ClipScopeSmokeNative]::keybd_event(0x10, 0, 0, [UIntPtr]::Zero)
+        [ClipScopeSmokeNative]::keybd_event(0x56, 0, 0, [UIntPtr]::Zero)
+        [ClipScopeSmokeNative]::keybd_event(0x56, 0, 2, [UIntPtr]::Zero)
+        [ClipScopeSmokeNative]::keybd_event(0x10, 0, 2, [UIntPtr]::Zero)
+        Wait-Condition { [ClipScopeSmokeNative]::GetForegroundWindow() -eq [IntPtr]$script:window.Current.NativeWindowHandle } 'activation while Ctrl remains held'
+        [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+        Wait-Condition { [System.Windows.Forms.Clipboard]::GetText() -eq $fixture } 'copy with Ctrl held across activation'
+        if ($destination.Text.Length -ne 0) { throw 'Ctrl held across activation pasted instead of copying.' }
+    } finally {
+        [ClipScopeSmokeNative]::keybd_event(0x11, 0, 2, [UIntPtr]::Zero)
+        [ClipScopeSmokeNative]::keybd_event(0x10, 0, 2, [UIntPtr]::Zero)
+    }
     Wait-Condition { $null -ne (Find-Name 'Unpin') } 'original clip still pinned'
     # Cancel must discard staged privacy edits. A failed Save must retain the
     # original shortcut and exact startup registry entry as well as the file.
