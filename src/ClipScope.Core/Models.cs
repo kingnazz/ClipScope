@@ -78,6 +78,7 @@ public interface IClipRepository
     Task<bool> AttachContextAsync(Guid id, string screenshot, string thumbnail, string? icon, CancellationToken ct = default);
     Task<IReadOnlyList<string>> DeleteAsync(Guid id, CancellationToken ct = default);
     Task<bool> DeleteIfUnpinnedAsync(Guid id, CancellationToken ct = default);
+    Task<IReadOnlyList<string>?> DeleteUnpinnedWithMediaAsync(Guid id, CancellationToken ct = default);
     Task<IReadOnlyList<Clip>> ListForMaintenanceAsync(CancellationToken ct = default);
 }
 

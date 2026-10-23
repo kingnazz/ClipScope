@@ -103,6 +103,38 @@ public sealed class StorageTests : IAsyncLifetime
         Assert.False(await _repository.AttachContextAsync(clip.Id, "media/b.png", "thumbnails/b.png", null, ct: TestContext.Current.CancellationToken));
     }
     [Fact]
+    public async Task ClearUsesCurrentMediaAfterLateScreenshotAttachment()
+    {
+        var clip = Item("late snapshot"); await Add(clip);
+        var snapshot = Assert.Single(await _repository.ListForMaintenanceAsync(TestContext.Current.CancellationToken));
+        Assert.Empty(snapshot.MediaPaths);
+        var context = await _media.WriteAsync(clip.Id, "context", [1, 2, 3], TestContext.Current.CancellationToken);
+        var thumb = await _media.WriteAsync(clip.Id, "thumb", [4, 5, 6], TestContext.Current.CancellationToken);
+        await _repository.AttachContextAsync(clip.Id, context, thumb, null, TestContext.Current.CancellationToken);
+        var deleted = await _repository.DeleteUnpinnedWithMediaAsync(snapshot.Id, TestContext.Current.CancellationToken);
+        Assert.NotNull(deleted);
+        _media.Delete(deleted);
+        Assert.False(File.Exists(_paths.ResolveMedia(context)));
+        Assert.False(File.Exists(_paths.ResolveMedia(thumb)));
+        Assert.Empty(await _repository.SearchAsync(new("snapshot"), TestContext.Current.CancellationToken));
+        Assert.False(await _repository.AttachContextAsync(clip.Id, context, thumb, null, TestContext.Current.CancellationToken));
+    }
+    [Fact]
+    public async Task ClearRechecksPinAndDoesNotDeleteClipsCapturedAfterItsSnapshot()
+    {
+        var clip = Item("protect"); await Add(clip);
+        var snapshot = await _repository.ListForMaintenanceAsync(TestContext.Current.CancellationToken);
+        await _repository.SetPinnedAsync(clip.Id, true, TestContext.Current.CancellationToken);
+        var newer = Item("arrived during clear"); await Add(newer);
+        foreach (var candidate in snapshot)
+            Assert.Null(await _repository.DeleteUnpinnedWithMediaAsync(candidate.Id, TestContext.Current.CancellationToken));
+        Assert.True((await _repository.GetAsync(clip.Id, TestContext.Current.CancellationToken))!.IsPinned);
+        Assert.NotNull(await _repository.GetAsync(newer.Id, TestContext.Current.CancellationToken));
+        await _repository.SetPinnedAsync(clip.Id, false, TestContext.Current.CancellationToken);
+        Assert.NotNull(await _repository.DeleteUnpinnedWithMediaAsync(clip.Id, TestContext.Current.CancellationToken));
+        Assert.Null(await _repository.DeleteUnpinnedWithMediaAsync(clip.Id, TestContext.Current.CancellationToken));
+    }
+    [Fact]
     public async Task RetentionRemovesOldUnpinnedMediaAndPreservesPinned()
     {
         var old = Item("old", 60); var pinned = Item("pinned", 90) with { IsPinned = true };

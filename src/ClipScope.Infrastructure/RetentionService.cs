@@ -16,11 +16,13 @@ public sealed class RetentionService(IClipRepository repository, MediaStore medi
             foreach (var clip in clips.Where(x => !x.IsPinned).ToArray())
             {
                 if (clip.CreatedUtc >= now.AddDays(-settings.RetentionDays) && total <= settings.MaxMediaBytes) continue;
-                if (!await repository.DeleteIfUnpinnedAsync(clip.Id, ct)) continue;
-                media.Delete(clip.MediaPaths);
+                if (await repository.DeleteUnpinnedWithMediaAsync(clip.Id, ct) is not { } references) continue;
+                media.Delete(references);
                 total -= sizes[clip.Id]; clips.Remove(clip); removed++;
             }
-            media.RemoveOrphans(clips.SelectMany(x => x.MediaPaths).ToHashSet(), now.AddHours(-1));
+            // Capture/context attachment may have changed references during cleanup.
+            var retained = await repository.ListForMaintenanceAsync(ct);
+            media.RemoveOrphans(retained.SelectMany(x => x.MediaPaths).ToHashSet(), now.AddHours(-1));
             log.Write("storage.cleanup");
             return new(removed, total, total > settings.MaxMediaBytes);
         }
