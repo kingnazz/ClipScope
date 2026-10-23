@@ -165,3 +165,50 @@ an automated test metric.
 Representative captures from the premium UI baseline are in `docs/screenshots/`
 (synthetic clips; the source window is a test form hosted by Windows PowerShell).
 Hardening evidence and remaining checks are in [PREMIUM_UI_REVIEW.md](PREMIUM_UI_REVIEW.md).
+
+
+## Premium UI hardening review
+
+Verified runtime/test commit: `da48011cc5d4ffdb8ad8b35ac2211ce6c6544137`.
+[GitHub Actions run 39911772919](https://github.com/kingnazz/ClipScope/actions/runs/39911772919)
+passed both Windows and portable jobs. Subsequent documentation-only commits do
+not change this runtime/test evidence.
+
+| Check | Observed result |
+| --- | --- |
+| Full Windows Release solution build, warnings as errors | PASS; 0 warnings, 0 errors |
+| Core tests | 69 passed |
+| Infrastructure tests, real SQLite/FTS5 | 28 passed |
+| Total automated tests | 97 passed, 0 failed, 0 skipped (77 baseline + 20 focused cases) |
+| Expanded Windows desktop functional smoke | PASS, not skipped |
+| Existing-profile / ownership / junction safety script | PASS |
+| Optional UI capture | PASS; 18 synthetic states, nonblank window-only renders |
+| Optional artifact upload | PASS; `clipscope-ui-screenshots`, 1,074,608 bytes |
+| Local Linux Release diagnostic app compilation | PASS; 0 warnings, 0 errors; Windows manifest/PRI tools disabled only for this diagnostic |
+
+The expanded smoke exercises immediate query commands, fast Ctrl+Enter and Ctrl
+held across activation, ordinary Enter after release, decoded snapshot preview,
+privacy Cancel, a locked settings file forcing actual hotkey/startup rollback,
+retry/shortcut replacement, and clear-history confirmation preserving pinned
+content. Existing capture, context, PNG, restoration, pin, FTS, global activation,
+paste, delete and media assertions remain.
+
+The DWM crop is checked against the visible source-window frame in the smoke.
+Geometry cases cover invalid/unavailable bounds, negative monitor coordinates,
+and 100/125/150/200% minimum sizing. Image cases bound both decode dimensions and
+reject malformed/oversized headers. Storage cases cover late screenshot attachment,
+late pinning and new capture after the clear snapshot.
+
+[Full review and changed files](PREMIUM_UI_REVIEW.md).
+[Fresh screenshot artifact](https://github.com/kingnazz/ClipScope/actions/runs/39911772919/artifacts/12482539061).
+This cloud environment blocks artifact downloads from the Azure storage host;
+fresh screenshots were captured and validated as nonblank in CI but have not been
+visually inspected here. The checked-in PNGs remain baseline evidence.
+
+Physical Windows 11 checks remain: Mica, title-bar drag/snap, high/mixed DPI and
+maximize/restore, constrained work areas, high contrast, Narrator/focus order,
+touch, real source/destination apps, startup at sign-in, protected/GPU sources
+and all-day memory/handle stability. Merge recommendation: suitable as a Windows
+11 candidate with green checks; production release acceptance remains pending.
+Engineering readiness **94/100**; UI readiness **87/100**; release readiness **74/100**.
+PR #2 remains draft and unmerged.

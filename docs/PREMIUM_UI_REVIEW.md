@@ -18,7 +18,7 @@ features, replacement PR, installer or merge is included.
 | Medium | Minimum window sizes and natural image sizes assumed startup DPI. | Observe `XamlRoot` scale changes and monitor/presenter movement, update pixel constraints against the current work area, and rescale selected images. Detach the scale handler on close. `MainWindow.Layout.cs`, `WindowGeometry.cs`, `ClipDetailView.cs`. |
 | Medium | Pending operations/timer could outlive shutdown; shared CTS objects were disposed by their successor. | Stop the timer, invalidate/cancel pending work, reject activation/commands during exit, unsubscribe capture delivery and let operations dispose their own tokens. `MainWindow.cs`. |
 | Low | Source snapshots included invisible resize borders. | Crop the existing PrintWindow bitmap to contained DWM extended-frame bounds. Unavailable, empty or expanding bounds keep the original window-only capture. There is no desktop fallback. `WindowImages.cs`, `Native.cs`, `WindowGeometry.cs`. |
-| Low | Live-region properties alone did not explicitly announce status changes. | Raise live-region events for history status, settings errors and clear completion. Required smoke automation names are preserved. `MainWindow.Layout.cs`, `MainWindow.Settings.cs`. |
+| Low | Live-region properties alone did not explicitly announce status changes. | Raise live-region events for history status, settings errors and clear completion. Required smoke automation names are preserved. `MainWindow.Layout.cs`, `MainWindow.Settings.cs`, `Design/SettingsLayout.cs`. |
 
 A tray Pause request now carries the requested state through queued saves, and
 Resume takes effect only after persistence. A failed pause remains paused for that
@@ -40,7 +40,9 @@ than silently reported as a successful Save.
   resolver; copied file-list paths are not media references and are never deleted
   by clear/retention. Existing containment/orphan tests remain green.
 - **Global activation, second instance, tray and paste:** no additional defect
-  found beyond the command/settings races fixed above. Modifier handling retains this window’s key events with physical fallback and activation reconciliation; the clipboard/paste implementation remains.
+  found beyond the command, modifier and settings issues fixed above. Modifier
+  handling retains this window’s key events with physical fallback and activation
+  reconciliation; the clipboard/paste implementation remains.
 - **Runtime XAML:** resources load inside the startup exception boundary before
   native capture starts. Startup failure uses the existing diagnostic/fallback
   window. Template bindings and semantic theme resources resolve in Windows CI.
@@ -66,7 +68,8 @@ only the real Windows workflow validates the full desktop Release build.
 
 Windows functional smoke retains the original capture/context/screenshot/copy/pin/
 FTS/global shortcut/paste/delete/media checks and adds immediate search commands,
-Ctrl+Enter, privacy Cancel, a locked settings file forcing real startup/hotkey
+fast Ctrl+Enter, Ctrl held across activation, decoded snapshot preview, privacy
+Cancel, a locked settings file forcing real startup/hotkey
 rollback, retry and shortcut replacement, and clear-history confirmation preserving
 a pinned clip. A separate script checks existing-profile refusal, owner mismatch,
 junction refusal and owned-directory cleanup.
@@ -79,7 +82,12 @@ host are blocked by this cloud environment's network policy; fresh captures have
 not been visually inspected here. The four baseline representative PNGs remain
 labelled as baseline evidence in `docs/screenshots/`.
 
-Windows evidence and final outcomes are recorded in [VALIDATION.md](VALIDATION.md).
+Verified runtime/test code: `da48011cc5d4ffdb8ad8b35ac2211ce6c6544137`.
+[Windows and portable run 39911772919](https://github.com/kingnazz/ClipScope/actions/runs/39911772919)
+passed: full Release build with warnings as errors, 97 tests, expanded functional
+smoke, profile safety, all 18 screenshot states (including nonblank-render checks)
+and artifact upload. [Screenshot artifact](https://github.com/kingnazz/ClipScope/actions/runs/39911772919/artifacts/12482539061).
+Windows evidence and remaining acceptance are recorded in [VALIDATION.md](VALIDATION.md).
 
 ## Remaining Windows 11 acceptance and recommendation
 
@@ -110,6 +118,7 @@ scripts/test-windows-test-profile.ps1
 scripts/windows-test-profile.ps1
 src/ClipScope.App/ClipDetailView.cs
 src/ClipScope.App/ClipRow.cs
+src/ClipScope.App/Design/SettingsLayout.cs
 src/ClipScope.App/MainWindow.Layout.cs
 src/ClipScope.App/MainWindow.Settings.cs
 src/ClipScope.App/MainWindow.cs
