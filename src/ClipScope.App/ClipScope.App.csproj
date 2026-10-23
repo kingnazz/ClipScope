@@ -21,7 +21,7 @@
     <XmlPoke XmlInputPath="$(ClipScopeGeneratedManifest)" Query="/a:assembly/a:assemblyIdentity/@version" Value="$(AssemblyVersion)" Namespaces="&lt;Namespace Prefix='a' Uri='urn:schemas-microsoft-com:asm.v1' /&gt;" />
   </Target>
   <ItemGroup>
-    <Content Include="Assets/ClipScope.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Update="Assets/ClipScope.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <ProjectReference Include="../ClipScope.Windows/ClipScope.Windows.csproj" />
     <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.9" />
     <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.5.1" />
