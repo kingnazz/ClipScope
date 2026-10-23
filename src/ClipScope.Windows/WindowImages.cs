@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 using ClipScope.Core;
 
 namespace ClipScope.Windows;
@@ -52,8 +53,18 @@ public static class WindowImages
             try { if (!Native.PrintWindow(hwnd, dc, 2)) return null; }
             finally { graphics.ReleaseHdc(dc); }
         }
-        using var scaled = Scale(bitmap, 2560);
+        using var visible = CropToVisibleFrame(bitmap, hwnd, rect);
+        using var scaled = Scale(visible ?? bitmap, 2560);
         return (Png(scaled), Thumbnail(scaled));
+    }
+    // GetWindowRect includes the invisible DWM resize borders, which PrintWindow leaves black.
+    private static Bitmap? CropToVisibleFrame(Bitmap bitmap, nint hwnd, Native.Rect rect)
+    {
+        if (Native.DwmGetWindowAttribute(hwnd, Native.DWMWA_EXTENDED_FRAME_BOUNDS, out var frame, Marshal.SizeOf<Native.Rect>()) != 0) return null;
+        var left = Math.Max(frame.Left, rect.Left) - rect.Left; var top = Math.Max(frame.Top, rect.Top) - rect.Top;
+        var right = Math.Min(frame.Right, rect.Right) - rect.Left; var bottom = Math.Min(frame.Bottom, rect.Bottom) - rect.Top;
+        if (right - left <= 0 || bottom - top <= 0 || (left == 0 && top == 0 && right == bitmap.Width && bottom == bitmap.Height)) return null;
+        return bitmap.Clone(new Rectangle(left, top, right - left, bottom - top), bitmap.PixelFormat);
     }
     public static byte[]? ApplicationIcon(string? executable)
     {

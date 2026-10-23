@@ -6,6 +6,7 @@ namespace ClipScope.Windows;
 internal static class Native
 {
     internal const uint WM_CLIPBOARDUPDATE = 0x031D, WM_HOTKEY = 0x0312, WM_APP = 0x8000;
+    internal const uint DWMWA_EXTENDED_FRAME_BOUNDS = 9;
     internal const uint CF_TEXT = 1, CF_DIB = 8, CF_UNICODETEXT = 13, CF_HDROP = 15, CF_DIBV5 = 17;
     internal delegate nint WindowProc(nint hwnd, uint message, nuint wParam, nint lParam);
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -76,6 +77,7 @@ internal static class Native
     [DllImport("user32.dll")] internal static extern nint MonitorFromWindow(nint hwnd, uint flags);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern bool GetMonitorInfo(nint monitor, ref MonitorInfo info);
     [DllImport("user32.dll")] internal static extern bool GetWindowRect(nint hwnd, out Rect rect);
+    [DllImport("dwmapi.dll")] internal static extern int DwmGetWindowAttribute(nint hwnd, uint attribute, out Rect value, int size);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern int GetClassName(nint hwnd, StringBuilder value, int size);
     [DllImport("user32.dll")] internal static extern bool IsWindow(nint hwnd);
     [DllImport("user32.dll")] internal static extern bool IsIconic(nint hwnd);
