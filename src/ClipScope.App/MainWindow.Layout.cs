@@ -331,7 +331,7 @@ internal sealed partial class MainWindow
 
     private void UpdateStatus()
     {
-        if (_status is null) return;
+        if (_exiting || _status is null) return;
         _statusTimer.Stop();
         var count = _rows.Count;
         var query = _search.Text.Trim();
@@ -357,6 +357,7 @@ internal sealed partial class MainWindow
 
     private void UpdateCaptionButtons()
     {
+        if (_exiting) return;
         // Caption buttons follow the in-app theme choice, including overrides of the system theme.
         AppWindow.TitleBar.PreferredTheme = _root.ActualTheme == ElementTheme.Dark ? TitleBarTheme.Dark : TitleBarTheme.Light;
     }
@@ -374,6 +375,7 @@ internal sealed partial class MainWindow
     private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => UpdateDisplayMetrics();
     private void UpdateDisplayMetrics()
     {
+        if (_exiting) return;
         var scale = _root.XamlRoot?.RasterizationScale ?? Math.Max(1, GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96.0);
         var work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var metrics = (scale, work.Width, work.Height);

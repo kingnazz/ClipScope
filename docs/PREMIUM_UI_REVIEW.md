@@ -35,6 +35,9 @@ than silently reported as a successful Save.
 - **SQLite/FTS5:** parameterization, search grammar, paging, migrations and FTS
   triggers are preserved; the clear workflow uses the existing repository writer
   serialization and adds an atomic media-reference read.
+- **Media path containment:** no additional defect found in the product path
+  resolver; copied file-list paths are not media references and are never deleted
+  by clear/retention. Existing containment/orphan tests remain green.
 - **Global activation, second instance, tray and paste:** no additional defect
   found beyond the command/settings races fixed above. Physical modifier state
   remains based on `GetAsyncKeyState`; the clipboard/paste implementation remains.

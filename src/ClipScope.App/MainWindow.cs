@@ -80,7 +80,11 @@ internal sealed partial class MainWindow : Window
         if (_exiting) return;
         var candidate = previous != 0 ? previous : WindowContext.ForegroundHandle;
         if (WindowContext.IsTarget(candidate)) _pasteTarget = candidate;
-        if (_settingsView is not null) { CloseSettings(); if (_settingsView is not null) return; }
+        if (_settingsView is not null)
+        {
+            if (_settingsBusy) { ShowSettings(); return; }
+            CloseSettings();
+        }
         // Opening history starts from the newest clip unless a search is in progress.
         if (_search.Text.Length == 0)
         {
@@ -188,6 +192,7 @@ internal sealed partial class MainWindow : Window
         {
             if (!await _native.RestoreAsync(clip, clip.PrimaryMediaPath is null ? null : _paths.ResolveMedia(clip.PrimaryMediaPath)))
             { Notice("The clipboard is busy. Try Copy again."); return; }
+            if (_exiting) return;
             if (paste)
             {
                 if (!WindowContext.IsTarget(destination)) { Notice("Copied. Activate a destination application and paste with Ctrl+V."); return; }
@@ -222,7 +227,11 @@ internal sealed partial class MainWindow : Window
             await _settingsStore.SaveAsync(updated);
             _settings = updated; UpdateRecordingState(); UpdateEmptyState();
         }
-        catch (Exception e) { _log.Write("settings.pause_failed", e); Notice("Recording state could not be saved. Recording remains paused for this session."); }
+        catch (Exception e)
+        {
+            _settings = _settings with { CaptureEnabled = false }; UpdateRecordingState(); UpdateEmptyState();
+            _log.Write("settings.pause_failed", e); Notice("Recording state could not be saved. Recording remains paused for this session.");
+        }
         finally { _settingsGate.Release(); }
     }
     private void ApplyAppearance()
@@ -234,8 +243,8 @@ internal sealed partial class MainWindow : Window
     private string? Absolute(string? relative)
     { try { return relative is null ? null : _paths.ResolveMedia(relative); } catch (ArgumentException) { return null; } }
     private void EmptyDetail() => _detail.ShowEmpty(_rows.Count == 0);
-    private void Notice(string message) { _notice.Message = message; _notice.Severity = InfoBarSeverity.Warning; _notice.IsOpen = true; }
-    private void FlashStatus(string message) { _status.Text = message; _statusTimer.Stop(); _statusTimer.Start(); }
+    private void Notice(string message) { if (_exiting) return; _notice.Message = message; _notice.Severity = InfoBarSeverity.Warning; _notice.IsOpen = true; }
+    private void FlashStatus(string message) { if (_exiting) return; _status.Text = message; _statusTimer.Stop(); _statusTimer.Start(); }
     private async Task ExitAsync()
     {
         if (_exiting) return;
