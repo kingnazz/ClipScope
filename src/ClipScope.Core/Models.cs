@@ -58,7 +58,7 @@ public sealed record Clip
 }
 
 public sealed record ClipSummary(Guid Id, ClipKind Kind, string Preview, DateTimeOffset CreatedUtc,
-    string SourceApp, string WindowTitle, bool IsPinned, string? ThumbnailPath, string? IconPath)
+    string SourceApp, string WindowTitle, bool IsPinned, string? ThumbnailPath, string? IconPath, bool HasContextScreenshot = false)
 {
     public string LocalTime => CreatedUtc.ToLocalTime().ToString("MMM d · HH:mm");
     public string TypeLabel => Kind.ToString();
@@ -78,6 +78,7 @@ public interface IClipRepository
     Task<bool> AttachContextAsync(Guid id, string screenshot, string thumbnail, string? icon, CancellationToken ct = default);
     Task<IReadOnlyList<string>> DeleteAsync(Guid id, CancellationToken ct = default);
     Task<bool> DeleteIfUnpinnedAsync(Guid id, CancellationToken ct = default);
+    Task<IReadOnlyList<string>?> DeleteUnpinnedWithMediaAsync(Guid id, CancellationToken ct = default);
     Task<IReadOnlyList<Clip>> ListForMaintenanceAsync(CancellationToken ct = default);
 }
 

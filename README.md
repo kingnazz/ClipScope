@@ -11,9 +11,13 @@ still required. This is a draft, not a production release. See
 ## Use
 
 Launch ClipScope, copy content in another application, then press **Ctrl + Shift + V**
-to search and restore history. Enter or double-click pastes the selection to the
-previous application. Copy restores the clipboard without switching applications.
-Use the source/detail pane to inspect timestamps, process, window, formats and images.
+to search and restore history. Type to search; Up/Down choose a clip without leaving
+the search box. Enter or double-click pastes the selection to the previous
+application. Ctrl+Enter (or Copy) restores the clipboard without switching
+applications. Ctrl+P pins, Delete removes the selected clip, Ctrl+1–5 switch filters
+and Esc clears the search, then hides the window. The detail pane shows the source
+application, window, time, full content, the optional source snapshot and details
+such as process, formats and monitor.
 
 - Text (Unicode and legacy ANSI), CF_HTML, RTF, DIB images, copied files/folders.
 - Source application icon/name, process/PID/path, top-level window/title, monitor,
@@ -76,7 +80,7 @@ It does not replace the manual Windows 11 checklist.
 | `ClipScope.Core` | Models, privacy, limits, hashing, dedup and search contracts; no UI dependencies |
 | `ClipScope.Infrastructure` | SQLite migrations/FTS5, repositories, atomic settings, media, retention and diagnostics |
 | `ClipScope.Windows` | Dedicated STA message pump, clipboard, context, screenshots, hotkeys, tray, paste and startup |
-| `ClipScope.App` | Programmatic WinUI 3 layout, search/history/detail UI and settings |
+| `ClipScope.App` | WinUI 3 presentation layer: design system, Mica shell, search/history/detail UI and settings |
 
 See [architecture and ownership rules](docs/ARCHITECTURE.md),
 [privacy](docs/PRIVACY.md), [Windows acceptance checklist](docs/VALIDATION.md), and

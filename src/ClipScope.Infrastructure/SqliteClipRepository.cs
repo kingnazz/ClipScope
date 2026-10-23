@@ -104,9 +104,10 @@ public sealed partial class SqliteClipRepository(DataPaths paths, IDiagnosticLog
         using var db = Open();
         return Task.FromResult(Read(db, id));
     }
-    private static Clip? Read(SqliteConnection db, Guid id)
+    private static Clip? Read(SqliteConnection db, Guid id, SqliteTransaction? transaction = null)
     {
         using var cmd = db.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = "SELECT payload,pinned FROM clips WHERE id=$id;";
         Add(cmd, "$id", id.ToString());
         using var reader = cmd.ExecuteReader();
@@ -127,7 +128,8 @@ public sealed partial class SqliteClipRepository(DataPaths paths, IDiagnosticLog
             ClipFilter.Files => "AND c.kind=2", ClipFilter.Pinned => "AND c.pinned=1", _ => ""
         };
         cmd.CommandText = $"""
-            SELECT c.id,c.kind,c.preview,c.created,c.app,c.title,c.pinned,c.thumbnail,c.icon
+            SELECT c.id,c.kind,c.preview,c.created,c.app,c.title,c.pinned,c.thumbnail,c.icon,
+                   json_extract(c.payload,'$.ContextScreenshotPath') IS NOT NULL
             FROM clips c WHERE 1=1 {search} {filter} ORDER BY c.created DESC,c.rowid DESC LIMIT $limit OFFSET $offset;
             """;
         if (terms.Length > 0) Add(cmd, "$query", string.Join(" AND ", terms));
@@ -139,7 +141,8 @@ public sealed partial class SqliteClipRepository(DataPaths paths, IDiagnosticLog
             ct.ThrowIfCancellationRequested();
             results.Add(new(Guid.Parse(reader.GetString(0)), (ClipKind)reader.GetInt32(1), reader.GetString(2),
                 new DateTimeOffset(reader.GetInt64(3), TimeSpan.Zero), reader.GetString(4), reader.GetString(5),
-                reader.GetBoolean(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetString(8)));
+                reader.GetBoolean(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetString(8),
+                reader.GetBoolean(9)));
         }
         return Task.FromResult<IReadOnlyList<ClipSummary>>(results);
     }
@@ -184,13 +187,23 @@ public sealed partial class SqliteClipRepository(DataPaths paths, IDiagnosticLog
         finally { _writes.Release(); }
     }
     public async Task<bool> DeleteIfUnpinnedAsync(Guid id, CancellationToken ct = default)
+        => await DeleteUnpinnedWithMediaAsync(id, ct) is not null;
+
+    public async Task<IReadOnlyList<string>?> DeleteUnpinnedWithMediaAsync(Guid id, CancellationToken ct = default)
     {
         await _writes.WaitAsync(ct);
         try
         {
-            using var db = Open(); using var cmd = db.CreateCommand();
+            using var db = Open();
+            using var transaction = db.BeginTransaction();
+            var clip = Read(db, id, transaction);
+            if (clip is null || clip.IsPinned) return null;
+            using var cmd = db.CreateCommand(); cmd.Transaction = transaction;
             cmd.CommandText = "DELETE FROM clips WHERE id=$id AND pinned=0;";
-            Add(cmd, "$id", id.ToString()); return cmd.ExecuteNonQuery() == 1;
+            Add(cmd, "$id", id.ToString());
+            if (cmd.ExecuteNonQuery() != 1) return null;
+            transaction.Commit();
+            return clip.MediaPaths.ToArray();
         }
         finally { _writes.Release(); }
     }

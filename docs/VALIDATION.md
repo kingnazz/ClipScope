@@ -40,6 +40,33 @@ and FTS synchronization, late context attachment, age and budget eviction, pinne
 budget overflow, pin/cleanup race prevention, settings corruption/serialization,
 orphan grace/path containment and content-free diagnostic log rotation.
 
+## Premium UI pass (2026-10-23, branch `feat/premium-ui-v1`)
+
+Windows evidence comes from GitHub Actions `windows-latest` runs of `scripts/validate.ps1`,
+`scripts/smoke-windows.ps1` and the new `scripts/capture-ui-windows.ps1` on the PR head.
+
+| Check | Observed result |
+| --- | --- |
+| Full Release desktop/solution build, warnings as errors | Passed on Windows CI; 0 warnings, 0 errors |
+| Core tests (policies + new presentation helpers) | 56 passed, 0 failed (17 existing + 39 new cases) |
+| Infrastructure tests (real SQLite/FTS5) | 21 passed, 0 failed (one test extended for the snapshot flag) |
+| Automated tests on Windows CI | 77 passed, 0 failed, 0 skipped (baseline was 38) |
+| Windows desktop functional smoke | Passed against the redesigned UI (same coverage as before) |
+| UI screenshot capture | 18 screenshots: dark/light, empty, populated, text, code, image, files, source snapshot, pinned, search, no results, settings pages, ~900 px and ~1700 px widths |
+| Linux C# diagnostic build of the WinUI app | Passed; 0 warnings, 0 errors |
+
+The smoke script now retries a transient `ExternalException` from `Clipboard.GetText`
+while another process (including ClipScope checking its own restore) holds the
+clipboard; the assertion and deadline are unchanged. Smoke also caught a real
+regression during the pass (Enter copying instead of pasting after the global
+shortcut because of stale thread key state), fixed by reading physical key state.
+
+Screenshots were reviewed on a 1920×1080, 100% scale runner (Windows Server, where
+Mica falls back to a solid backdrop). Not verified: Windows 11 Mica appearance,
+high-DPI/mixed-DPI monitors, high contrast, Narrator/screen-reader output, touch,
+real third-party source applications and long-running sessions. These require a
+physical Windows 11 review.
+
 ## Desktop functional evidence
 
 `scripts/smoke-windows.ps1` ran successfully (not skipped) on the Windows CI runner.
@@ -123,7 +150,10 @@ remain open until exercised on an interactive Windows desktop.
 - Data is unencrypted. Pinned media can exceed budget; ordinary deletion is not
   secure erasure. Old orphan media has a one-hour grace period.
 - Tray icon is currently the shared Windows application icon. UI accessibility,
-  DPI, visual polish and startup behavior need physical review.
+  DPI, Mica on Windows 11 and startup behavior need physical review.
+- Source snapshots crop contained DWM visible-frame bounds; invalid or unavailable
+  DWM bounds retain the original window-only capture. GPU/protected-window capture
+  remains best-effort.
 - Document context beyond copied paths/window titles and all Phase 2 features are
   deferred. There is no installer, release, auto-update, AI or network service.
 
@@ -131,3 +161,54 @@ remain open until exercised on an interactive Windows desktop.
 38 automated tests and the core desktop workflow pass. Broader hands-on Windows 11
 acceptance remains necessary before calling the Phase 1 definition of done complete. This score is an engineering estimate, not
 an automated test metric.
+
+Representative captures from the premium UI baseline are in `docs/screenshots/`
+(synthetic clips; the source window is a test form hosted by Windows PowerShell).
+Hardening evidence and remaining checks are in [PREMIUM_UI_REVIEW.md](PREMIUM_UI_REVIEW.md).
+
+
+## Premium UI hardening review
+
+Verified runtime/test commit: `da48011cc5d4ffdb8ad8b35ac2211ce6c6544137`.
+[GitHub Actions run 39911772919](https://github.com/kingnazz/ClipScope/actions/runs/39911772919)
+passed both Windows and portable jobs. Subsequent documentation-only commits do
+not change this runtime/test evidence.
+
+| Check | Observed result |
+| --- | --- |
+| Full Windows Release solution build, warnings as errors | PASS; 0 warnings, 0 errors |
+| Core tests | 69 passed |
+| Infrastructure tests, real SQLite/FTS5 | 28 passed |
+| Total automated tests | 97 passed, 0 failed, 0 skipped (77 baseline + 20 focused cases) |
+| Expanded Windows desktop functional smoke | PASS, not skipped |
+| Existing-profile / ownership / junction safety script | PASS |
+| Optional UI capture | PASS; 18 synthetic states, nonblank window-only renders |
+| Optional artifact upload | PASS; `clipscope-ui-screenshots`, 1,074,608 bytes |
+| Local Linux Release diagnostic app compilation | PASS; 0 warnings, 0 errors; Windows manifest/PRI tools disabled only for this diagnostic |
+
+The expanded smoke exercises immediate query commands, fast Ctrl+Enter and Ctrl
+held across activation, ordinary Enter after release, decoded snapshot preview,
+privacy Cancel, a locked settings file forcing actual hotkey/startup rollback,
+retry/shortcut replacement, and clear-history confirmation preserving pinned
+content. Existing capture, context, PNG, restoration, pin, FTS, global activation,
+paste, delete and media assertions remain.
+
+The DWM crop is checked against the visible source-window frame in the smoke.
+Geometry cases cover invalid/unavailable bounds, negative monitor coordinates,
+and 100/125/150/200% minimum sizing. Image cases bound both decode dimensions and
+reject malformed/oversized headers. Storage cases cover late screenshot attachment,
+late pinning and new capture after the clear snapshot.
+
+[Full review and changed files](PREMIUM_UI_REVIEW.md).
+[Fresh screenshot artifact](https://github.com/kingnazz/ClipScope/actions/runs/39911772919/artifacts/12482539061).
+This cloud environment blocks artifact downloads from the Azure storage host;
+fresh screenshots were captured and validated as nonblank in CI but have not been
+visually inspected here. The checked-in PNGs remain baseline evidence.
+
+Physical Windows 11 checks remain: Mica, title-bar drag/snap, high/mixed DPI and
+maximize/restore, constrained work areas, high contrast, Narrator/focus order,
+touch, real source/destination apps, startup at sign-in, protected/GPU sources
+and all-day memory/handle stability. Merge recommendation: suitable as a Windows
+11 candidate with green checks; production release acceptance remains pending.
+Engineering readiness **94/100**; UI readiness **87/100**; release readiness **74/100**.
+PR #2 remains draft and unmerged.

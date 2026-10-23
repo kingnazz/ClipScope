@@ -59,7 +59,12 @@ public sealed class SettingsStore(DataPaths paths, IDiagnosticLog log)
             await File.WriteAllTextAsync(temp, JsonSerializer.Serialize(settings, Json), ct);
             File.Move(temp, paths.Settings, true);
         }
-        finally { if (File.Exists(temp)) File.Delete(temp); _gate.Release(); }
+        finally
+        {
+            try { if (File.Exists(temp)) File.Delete(temp); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { log.Write("settings.temp_cleanup_failed", e); }
+            finally { _gate.Release(); }
+        }
     }
 }
 

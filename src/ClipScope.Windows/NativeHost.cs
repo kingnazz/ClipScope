@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using ClipScope.Core;
+using ClipScope.Infrastructure;
 
 namespace ClipScope.Windows;
 
@@ -22,13 +23,13 @@ public sealed class NativeHost : IDisposable
     private uint _sequence, _processed, _taskbarCreated;
     private SourceContext _source = new();
     private DateTimeOffset _capturedAt;
-    private int _retry, _hotkeyId;
+    private int _retry, _hotkeyId, _reservedHotkeyId;
     private Native.NotifyIconData _tray;
     private bool _disposed;
     public event Action<CapturedClip>? Captured;
     public event Action<nint>? OpenRequested;
     public event Action? SettingsRequested;
-    public event Action? PauseRequested;
+    public event Action<bool>? CaptureEnabledRequested;
     public event Action? ExitRequested;
     public bool TrayAvailable { get; private set; }
     public Task Ready => _ready.Task;
@@ -69,6 +70,7 @@ public sealed class NativeHost : IDisposable
             {
                 Native.RemoveClipboardFormatListener(_window);
                 Native.UnregisterHotKey(_window, _hotkeyId);
+                if (_reservedHotkeyId != 0) Native.UnregisterHotKey(_window, _reservedHotkeyId);
                 Native.Shell_NotifyIcon(2, ref _tray);
                 Native.DestroyWindow(_window);
             }
@@ -143,7 +145,8 @@ public sealed class NativeHost : IDisposable
         try
         {
             Native.AppendMenu(menu, 0, 1, "Open ClipScope");
-            Native.AppendMenu(menu, 0, 2, _settings().CaptureEnabled ? "Pause clipboard capture" : "Resume clipboard capture");
+            var captureEnabled = _settings().CaptureEnabled;
+            Native.AppendMenu(menu, 0, 2, captureEnabled ? "Pause clipboard capture" : "Resume clipboard capture");
             Native.AppendMenu(menu, 0, 3, "Settings"); Native.AppendMenu(menu, 0, 4, "Exit");
             Native.GetCursorPos(out var cursor);
             var previous = Native.GetForegroundWindow();
@@ -151,7 +154,7 @@ public sealed class NativeHost : IDisposable
             switch (Native.TrackPopupMenu(menu, 0x0100 | 0x0002, cursor.X, cursor.Y, 0, _window, 0))
             {
                 case 1: OpenRequested?.Invoke(previous); break;
-                case 2: PauseRequested?.Invoke(); break;
+                case 2: CaptureEnabledRequested?.Invoke(!captureEnabled); break;
                 case 3: OpenRequested?.Invoke(previous); SettingsRequested?.Invoke(); break;
                 case 4: ExitRequested?.Invoke(); break;
             }
@@ -169,12 +172,47 @@ public sealed class NativeHost : IDisposable
     }
     public Task<bool> SetHotkeyAsync(Hotkey hotkey) => InvokeAsync(() =>
     {
+        if (_reservedHotkeyId != 0) return false;
         if (!hotkey.IsValid) return false;
         var newId = _hotkeyId == 1 ? 2 : 1;
         if (!Native.RegisterHotKey(_window, newId, hotkey.Modifiers | 0x4000, hotkey.Key)) return false;
         if (_hotkeyId != 0) Native.UnregisterHotKey(_window, _hotkeyId);
         _hotkeyId = newId; return true;
     });
+    public async Task<ISettingsChange?> PrepareHotkeyAsync(Hotkey hotkey)
+    {
+        var id = await InvokeAsync(() =>
+        {
+            if (!hotkey.IsValid || _reservedHotkeyId != 0) return 0;
+            var next = _hotkeyId == 1 ? 2 : 1;
+            if (!Native.RegisterHotKey(_window, next, hotkey.Modifiers | 0x4000, hotkey.Key)) return 0;
+            return _reservedHotkeyId = next;
+        });
+        return id == 0 ? null : new HotkeyChange(this, id);
+    }
+    private sealed class HotkeyChange(NativeHost host, int id) : ISettingsChange
+    {
+        private bool _committed;
+        public async Task CommitAsync()
+        {
+            await host.InvokeAsync(() =>
+            {
+                if (host._hotkeyId != 0) Native.UnregisterHotKey(host._window, host._hotkeyId);
+                host._hotkeyId = id; host._reservedHotkeyId = 0;
+                return true;
+            });
+            _committed = true;
+        }
+        public async ValueTask DisposeAsync()
+        {
+            if (_committed) return;
+            await host.InvokeAsync(() =>
+            {
+                Native.UnregisterHotKey(host._window, id); host._reservedHotkeyId = 0;
+                return true;
+            });
+        }
+    }
     public async Task<bool> RestoreAsync(Clip clip, string? absoluteImagePath)
     {
         var formats = await Task.Run(() => ClipboardWriter.Prepare(clip, absoluteImagePath));
