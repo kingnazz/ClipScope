@@ -40,7 +40,8 @@ function Wait-Condition([scriptblock] $Condition, [string] $Description, [int] $
     $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
     do {
         [System.Windows.Forms.Application]::DoEvents()
-        try { if (& $Condition) { return } } catch [System.Windows.Automation.ElementNotAvailableException] { }
+        try { if (& $Condition) { return } } catch [System.Windows.Automation.ElementNotAvailableException] { } catch [System.Runtime.InteropServices.ExternalException] { }
+        catch [System.Management.Automation.MethodInvocationException] { if ($_.Exception.InnerException -isnot [System.Runtime.InteropServices.ExternalException]) { throw } }
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
     throw "Timed out waiting for $Description."
