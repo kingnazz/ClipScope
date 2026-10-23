@@ -38,6 +38,17 @@ function Stop-ClipScope {
         }
     }
 }
+function Get-ProfileSnapshot {
+    $json = & dotnet (Join-Path $root 'tools/ClipScope.Diagnostics/bin/Release/net10.0/ClipScope.Diagnostics.dll') snapshot $data
+    if ($LASTEXITCODE -ne 0) { throw 'Upgrade integrity verification failed.' }
+    return ($json | ConvertFrom-Json)
+}
+function Assert-SameSnapshot($Before, $After) {
+    foreach ($property in @('clips','pins','recordsSha256','settingsSha256','searchHits')) {
+        if ($Before.$property -ne $After.$property) { throw "Upgrade changed $property." }
+    }
+    if (($Before.media | ConvertTo-Json -Compress) -ne ($After.media | ConvertTo-Json -Compress)) { throw 'Upgrade changed media bytes.' }
+}
 $profile = $null
 try {
     $installer = Join-Path $output "ClipScope-$($version.Version)-win-x64-setup.exe"
@@ -56,11 +67,58 @@ try {
     & powershell.exe -NoProfile -STA -File (Join-Path $PSScriptRoot 'smoke-windows.ps1') -ExecutablePath $exe -RequireDesktop
     if ($LASTEXITCODE -ne 0) { throw 'Installed functional smoke failed.' }
     Write-Output '::notice title=RC installer::PASS: fresh per-user install, payload hashes, metadata, Start Menu, installed functional smoke independent of staging'
-    $profile = New-OwnedTestDirectory $data
-    $settings = '{"MinimizeToTray":true,"ScreenshotsEnabled":true,"ExcludedApplications":["C:\\Synthetic\\private.exe"]}'
-    [IO.File]::WriteAllText((Join-Path $data 'settings.json'), $settings)
+    Invoke-Setup (Join-Path $install 'unins000.exe')
+    if (Test-Path $data) { throw 'Smoke did not release its owned test profile.' }
+
+    # Build the exact pre-RC main, then let its real app create history, pins,
+    # source snapshots and settings. No RC schema generator substitutes for it.
+    $baselineSha = 'f488f25344bce85fcef361241797eeed33510968'
+    $baseline = New-OwnedTestDirectory (Join-Path $root 'artifacts/upgrade-baseline')
+    & git -C $root fetch --no-tags --depth=1 origin $baselineSha
+    if ($LASTEXITCODE -ne 0) { throw 'Could not fetch the recorded main baseline.' }
+    $archive = Join-Path $baseline.Path 'main.zip'
+    & git -C $root archive --format=zip "--output=$archive" $baselineSha
+    if ($LASTEXITCODE -ne 0) { throw 'Could not archive the main baseline.' }
+    Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $baseline.Path 'source')
+    Push-Location (Join-Path $baseline.Path 'source')
+    try {
+        & dotnet publish src/ClipScope.App/ClipScope.App.csproj -c Release -r win-x64 --self-contained true -p:Platform=x64 -warnaserror -o (Join-Path $baseline.Path 'publish')
+        if ($LASTEXITCODE -ne 0) { throw 'The actual main baseline did not publish.' }
+    } finally { Pop-Location }
+    $receipt = Join-Path $evidence 'profile-ownership.json'
+    & powershell.exe -NoProfile -STA -File (Join-Path $PSScriptRoot 'smoke-windows.ps1') -ExecutablePath (Join-Path $baseline.Path 'publish/ClipScope.App.exe') -RequireDesktop -RetainProfile -OwnershipReceipt $receipt
+    if ($LASTEXITCODE -ne 0) { throw 'Actual main could not create the upgrade history.' }
+    # Explicit handoff from the child we launched, never adoption of pre-existing data.
+    $profile = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+    if ($profile.Path -ne $data -or $profile.Token -notmatch '^[a-f0-9]{32}$') { throw 'Invalid synthetic profile handoff.' }
+    $settingsPath = Join-Path $data 'settings.json'
+    $configuration = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+    $configuration.LaunchAtStartup = $true
+    $configuration.ExcludedApplications = @('C:\Synthetic\private.exe')
+    $configuration | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $settingsPath -Encoding utf8
+    $before = Get-ProfileSnapshot
+    if ($before.clips -lt 1 -or $before.pins -lt 1 -or @($before.media).Count -lt 1 -or $before.searchHits -lt 1) { throw 'Main upgrade fixture lacks actual history, pins, media or FTS.' }
+    $before | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $evidence 'main-before-upgrade.json')
+    $settings = [IO.File]::ReadAllText($settingsPath)
+
+    # No older published RC exists. This lower-version installer is explicitly a
+    # synthetic fixture, built with the same packaging code and an owned stale file.
+    $predecessor = '0.0.0-rc.1'
+    & (Join-Path $PSScriptRoot 'package-rc.ps1') -OutputDirectory 'artifacts/predecessor-fixture' -FixtureVersion $predecessor -SkipValidation -IncludeStaleFixtureFile
+    New-ItemProperty -Path $runKey -Name ClipScope -Value ('"' + (Join-Path $baseline.Path 'publish/ClipScope.App.exe') + '" --background') -PropertyType String -Force | Out-Null
+    Invoke-Setup (Join-Path $root "artifacts/predecessor-fixture/ClipScope-$predecessor-win-x64-setup.exe")
+    if (-not (Test-Path (Join-Path $install 'rc-stale-fixture.txt'))) { throw 'Predecessor did not install its stale-file fixture.' }
+    Invoke-Setup $installer
+    if (Test-Path (Join-Path $install 'rc-stale-fixture.txt')) { throw 'Upgrade left a stale previously owned payload file.' }
+    $app = Start-Process -FilePath $exe -ArgumentList '--background' -PassThru
+    Start-Sleep -Seconds 3
+    if ($app.HasExited) { throw 'Upgraded profile cannot launch.' }
+    Stop-ClipScope
+    $after = Get-ProfileSnapshot
+    Assert-SameSnapshot $before $after
+    $after | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $evidence 'rc-after-upgrade.json')
+    Write-Output '::notice title=RC upgrade::PASS: actual main history, pins, settings, exclusions, media hashes, FTS and SQLite integrity preserved; synthetic predecessor upgrade removed its stale owned file'
     [IO.File]::WriteAllText((Join-Path $data 'preservation-sentinel.txt'), 'synthetic user history sentinel')
-    New-ItemProperty -Path $runKey -Name ClipScope -Value ('"' + $exe + '" --background') -PropertyType String -Force | Out-Null
     $app = Start-Process -FilePath $exe -ArgumentList '--background' -PassThru
     Start-Sleep -Seconds 3
     if ($app.HasExited) { throw 'Quiet installed launch exited.' }
@@ -82,12 +140,16 @@ try {
     Start-Sleep -Seconds 3
     if ($app.HasExited) { throw 'Reinstall cannot launch with the retained profile.' }
     Stop-ClipScope
+    Assert-SameSnapshot $before (Get-ProfileSnapshot)
     Invoke-Setup (Join-Path $install 'unins000.exe') @('/PURGEUSERDATA=1')
     if (Test-Path $data) { throw 'Explicit data purge did not remove the synthetic profile.' }
     Write-Output '::notice title=RC installer::PASS: quiet single instance, graceful repair, startup preservation/removal, uninstall preserving data, reinstall, deliberate full purge'
     @{ os = [Environment]::OSVersion.VersionString; version = $version.Version; sha = (& git -C $root rev-parse HEAD);
-       result = 'PASS'; physicalWindows11 = 'NOT TESTED'; tests = @('install','hashes','shortcut','installed smoke','quiet duplicate','repair','startup registry','uninstall preserve','reinstall','explicit purge') } |
+       result = 'PASS'; baselineSha = $baselineSha; predecessor = 'synthetic 0.0.0-rc.1 (not a previously released RC)'; physicalWindows11 = 'NOT TESTED'; tests = @('install','hashes','shortcut','installed smoke','actual main profile upgrade','synthetic predecessor upgrade','stale owned file cleanup','quiet duplicate','repair','startup registry','uninstall preserve','reinstall','explicit purge') } |
         ConvertTo-Json -Depth 4 | Set-Content (Join-Path $evidence 'installer.json') -Encoding utf8
+} catch {
+    Write-Output ('::error title=Installed acceptance::' + $_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A') + " at line $($_.InvocationInfo.ScriptLineNumber)")
+    throw
 } finally {
     if (Test-Path $exe) { Stop-ClipScope }
     Remove-OwnedTestDirectory $profile

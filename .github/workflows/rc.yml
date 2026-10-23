@@ -27,16 +27,25 @@ jobs:
         with:
           global-json-file: global.json
       - name: Build, test and package self-contained RC
+        id: package
         shell: pwsh
-        run: ./scripts/package-rc.ps1
+        run: |
+          ./scripts/package-rc.ps1
+          . ./scripts/rc-version.ps1
+          "version=$((Get-ClipScopeVersion).Version)" >> $env:GITHUB_OUTPUT
       - name: Validate installed application and data policy
         shell: pwsh
-        run: ./scripts/test-installer.ps1
+        run: |
+          dotnet restore tools/ClipScope.Diagnostics --locked-mode
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic restore failed' }
+          dotnet build tools/ClipScope.Diagnostics -c Release --no-restore -warnaserror
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic build failed' }
+          ./scripts/test-installer.ps1
       - name: Upload installer and evidence (no release publishing)
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: ClipScope-0.1.0-rc.1-win-x64
+          name: ClipScope-${{ steps.package.outputs.version || 'failed-build' }}-win-x64
           path: |
             artifacts/rc/*-setup.exe
             artifacts/rc/build-manifest.json

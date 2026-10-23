@@ -4,13 +4,15 @@ param(
     [string] $OutputDirectory = 'artifacts/rc',
     [string] $FixtureVersion = '',
     [switch] $SkipValidation,
-    [string] $SigningCommand = ''
+    [string] $SigningCommand = '',
+    [switch] $IncludeStaleFixtureFile
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'rc-version.ps1')
 $version = Get-ClipScopeVersion $FixtureVersion
+if ($IncludeStaleFixtureFile -and -not $FixtureVersion) { throw 'Stale-file injection is restricted to the synthetic predecessor installer.' }
 Push-Location $root
 try {
     if (-not $SkipValidation) { & (Join-Path $PSScriptRoot 'validate.ps1') }
@@ -46,6 +48,12 @@ try {
     }
     # .NET's self-contained runtime brings its own LICENSE/ThirdPartyNotices files.
     Copy-Item -LiteralPath 'packaging/THIRD_PARTY_NOTICES.txt' -Destination $licenses
+    $runtimeConfig = Get-Content -LiteralPath (Join-Path $stage 'ClipScope.App.runtimeconfig.json') -Raw | ConvertFrom-Json -AsHashtable
+    $runtimeVersion = @($runtimeConfig.runtimeOptions.includedFrameworks | Where-Object { $_.name -eq 'Microsoft.NETCore.App' })[0].version
+    $runtimePackage = Join-Path $nuget "microsoft.netcore.app.runtime.win-x64/$runtimeVersion"
+    foreach ($notice in @('LICENSE.TXT','THIRD-PARTY-NOTICES.TXT')) {
+        Copy-Item -LiteralPath (Join-Path $runtimePackage $notice) -Destination (Join-Path $licenses ".NET-$notice")
+    }
     $required = @('ClipScope.App.exe','ClipScope.App.dll','ClipScope.App.deps.json','ClipScope.App.runtimeconfig.json',
         'hostfxr.dll','hostpolicy.dll','coreclr.dll','System.Private.CoreLib.dll','Microsoft.UI.Xaml.dll',
         'Microsoft.WindowsAppRuntime.dll','e_sqlite3.dll','vcruntime140.dll','vcruntime140_1.dll','msvcp140.dll','Assets/ClipScope.ico')
@@ -55,10 +63,13 @@ try {
     $meta = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $stage 'ClipScope.App.exe'))
     if ($meta.FileVersion -ne $version.FileVersion -or $meta.ProductVersion -notlike "$($version.Version)*") { throw 'Executable version metadata disagrees with Version.props.' }
     if ($SigningCommand) {
+        $SigningCommand = (Resolve-Path -LiteralPath $SigningCommand).Path
+        if ($SigningCommand.Contains('$')) { throw 'Inno signing-hook paths must not contain its macro delimiter ($).' }
         # Trusted build-machine script supplied by the release owner; no credentials in arguments/logs.
         & $SigningCommand -Path (Join-Path $stage 'ClipScope.App.exe')
         if (-not $?) { throw 'Executable signing failed.' }
     }
+    if ($IncludeStaleFixtureFile) { 'Owned by the synthetic predecessor only.' | Set-Content (Join-Path $stage 'rc-stale-fixture.txt') }
     $files = @(Get-ChildItem -LiteralPath $stage -File -Recurse | ForEach-Object { [IO.Path]::GetRelativePath($stage, $_.FullName) } | Sort-Object)
     @($files + 'install-files.txt') | Set-Content -LiteralPath (Join-Path $stage 'install-files.txt') -Encoding utf8
     $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
@@ -66,7 +77,15 @@ try {
     if ($compilerVersion -notlike "$($version.Compiler)*") { throw "Expected Inno Setup $($version.Compiler); found $compilerVersion." }
     $compile = @("/DPayload=$stage", "/DOutput=$output", "/DAppVersion=$($version.Version)",
         "/DFileVersion=$($version.FileVersion)", "/DPublisher=$($version.Publisher)", "/DAppId=$($version.AppId)", 'packaging/ClipScope.iss')
-    & $compiler @compile
+    if ($SigningCommand) {
+        $compile = @('/DEnableSigning', ('/Sclipscope=pwsh.exe -NoProfile -File $q' + $SigningCommand + '$q -Path $f')) + $compile
+    }
+    $compilerOutput = @(& $compiler @compile 2>&1)
+    $compilerOutput | ForEach-Object { Write-Output $_ }
+    if ($LASTEXITCODE -ne 0) {
+        $detail = ($compilerOutput | Select-Object -Last 10) -join "`n"
+        Write-Output ('::error title=Installer compiler::' + $detail.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A'))
+    }
     if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
     $installer = Join-Path $output "ClipScope-$($version.Version)-win-x64-setup.exe"
     if ($SigningCommand) {
@@ -81,4 +100,7 @@ try {
     $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $output 'build-manifest.json') -Encoding utf8
     "$($manifest.sha256)  $($manifest.installer)" | Set-Content -LiteralPath (Join-Path $output 'SHA256SUMS.txt') -Encoding ascii
     Write-Output "Built $($manifest.installer); self-contained payload validated."
+} catch {
+    Write-Output ('::error title=RC packaging::' + $_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A'))
+    throw
 } finally { Pop-Location }

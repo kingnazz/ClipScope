@@ -67,6 +67,13 @@ internal sealed partial class MainWindow : Window
     }
     public async Task InitializeAsync()
     {
+        // Repair a persisted sign-in preference after moving an unpackaged install.
+        // The installer also migrates an existing Run value before first launch.
+        if (_settings.LaunchAtStartup)
+        {
+            try { StartupIntegration.SetEnabled(true); }
+            catch (Exception error) { _log.Write("startup.registration_failed", error); Notice("Launch at sign-in could not be registered. Check Settings."); }
+        }
         await _native.Ready;
         if (!await _native.SetHotkeyAsync(_settings.Shortcut))
             Notice("The global shortcut is already in use. Choose another in Settings; ClipScope is available from the tray.");

@@ -34,6 +34,10 @@ CloseApplicationsFilter=*.exe,*.dll
 RestartApplications=no
 TimeStampsInUTC=yes
 LicenseFile={#Payload}\licenses\WindowsAppSDK-license.txt
+#ifdef EnableSigning
+SignTool=clipscope
+SignedUninstaller=yes
+#endif
 
 [Tasks]
 Name: desktopicon; Description: "Create a desktop shortcut"; Flags: unchecked

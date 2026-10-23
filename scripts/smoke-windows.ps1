@@ -1,7 +1,7 @@
 # Run with Windows PowerShell 5.1 in STA: powershell -Sta -File scripts/smoke-windows.ps1
 # Uses an isolated CI desktop and known synthetic content. Never run against an
 # existing user data directory: the script refuses to touch one.
-param([string] $ExecutablePath = '', [switch] $RequireDesktop)
+param([string] $ExecutablePath = '', [switch] $RequireDesktop, [switch] $RetainProfile, [string] $OwnershipReceipt = '')
 $ErrorActionPreference = 'Stop'
 if (-not [Environment]::UserInteractive) {
     if ($RequireDesktop) { throw 'An interactive desktop is required for installed acceptance.' }
@@ -10,6 +10,7 @@ if (-not [Environment]::UserInteractive) {
 }
 . (Join-Path $PSScriptRoot 'windows-test-profile.ps1')
 Assert-IsolatedDesktopRunner
+if ($RetainProfile -and -not $OwnershipReceipt) { throw 'Retaining synthetic data requires an explicit ownership receipt path.' }
 $dataDirectory = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ClipScope'
 if (Test-Path -LiteralPath $dataDirectory) { throw 'Existing ClipScope profile is protected.' }
 Add-Type -AssemblyName System.Windows.Forms
@@ -46,6 +47,7 @@ function Wait-Condition([scriptblock] $Condition, [string] $Description) {
 $script:app = $null
 $source = $null
 $profile = New-OwnedTestDirectory $dataDirectory
+$passed = $false
 try {
 $source = New-Object System.Windows.Forms.Form
 $source.Text = 'ClipScope CI Source'
@@ -290,6 +292,7 @@ $source.Show()
     Invoke-Action 'Cancel'
     Wait-Condition { $null -ne (Find-Name 'ClipScope clear pinned sentinel') } 'pinned clip preserved by clear'
     if ($null -ne (Find-Name 'ClipScope clear transient') -or $null -ne (Find-Name 'ClipScope second item gamma')) { throw 'Clear retained unpinned history.' }
+    $passed = $true
     Write-Output '::notice title=ClipScope desktop smoke::PASS: launch, text capture, source-window context, screenshot PNG and decoded preview, clipboard restoration, pin, FTS search, global shortcut, focus/paste, deletion, media cleanup, immediate commands, settings Cancel, failed Save rollback shortcut replacement and clear preserving pinned clips'
 } catch {
     Write-Output ("::error title=ClipScope desktop smoke::" + $_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A') + " (line $($_.InvocationInfo.ScriptLineNumber), phase $script:phase)")
@@ -306,5 +309,6 @@ $source.Show()
     if ($source) { $source.Close(); $source.Dispose() }
     if ($script:app) { $script:app.Dispose() }
     [System.Windows.Forms.Clipboard]::Clear()
-    Remove-OwnedTestDirectory $profile
+    if ($RetainProfile -and $passed) { $profile | ConvertTo-Json | Set-Content -LiteralPath $OwnershipReceipt -Encoding UTF8 }
+    else { Remove-OwnedTestDirectory $profile }
 }
