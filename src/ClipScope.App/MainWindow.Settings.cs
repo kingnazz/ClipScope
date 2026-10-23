@@ -128,6 +128,7 @@ internal sealed partial class MainWindow
         void SetClearStatus(string value)
         {
             clearStatus.Visibility = Visibility.Visible; clearStatus.Text = value;
+            AutomationProperties.SetName(clearStatus, value);
             FrameworkElementAutomationPeer.FromElement(clearStatus)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
         }
 
