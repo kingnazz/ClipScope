@@ -21,12 +21,16 @@ public static class ClipScopeSmokeNative {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
 }
 '@
+# Polls until the condition holds. Clipboard reads can briefly fail with ExternalException
+# while another process (including ClipScope itself) has the clipboard open; that is
+# retried, never treated as success.
 function Wait-Condition([scriptblock] $Condition, [string] $Description) {
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
     do {
         [System.Windows.Forms.Application]::DoEvents()
         if ($script:app -and $script:app.HasExited) { throw "ClipScope exited during $Description (exit $($script:app.ExitCode))." }
-        try { if (& $Condition) { return } } catch [System.Windows.Automation.ElementNotAvailableException] { }
+        try { if (& $Condition) { return } } catch [System.Windows.Automation.ElementNotAvailableException] { } catch [System.Runtime.InteropServices.ExternalException] { }
+        catch [System.Management.Automation.MethodInvocationException] { if ($_.Exception.InnerException -isnot [System.Runtime.InteropServices.ExternalException]) { throw } }
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
     throw "Timed out waiting for $Description."
