@@ -31,10 +31,11 @@ try {
     if (-not $vs) { throw 'The licensed Visual C++ release redistributable directory is required on the build machine.' }
     $crtFile = Get-ChildItem -LiteralPath (Join-Path $vs 'VC/Redist/MSVC') -Filter 'vcruntime140.dll' -File -Recurse |
         Where-Object { $_.FullName -match '\\x64\\Microsoft\.VC[0-9]+\.CRT\\vcruntime140\.dll$' } |
-        Sort-Object { [version]$_.VersionInfo.FileVersion } -Descending | Select-Object -First 1
+        Sort-Object { [version]::new($_.VersionInfo.FileMajorPart,$_.VersionInfo.FileMinorPart,$_.VersionInfo.FileBuildPart,$_.VersionInfo.FilePrivatePart) } -Descending | Select-Object -First 1
     $crt = if ($crtFile) { $crtFile.DirectoryName } else { $null }
     if (-not $crt) { throw 'The x64 release CRT redistribution payload was not found.' }
     Get-ChildItem -LiteralPath $crt -Filter '*.dll' | Copy-Item -Destination $stage
+    Write-Output "::notice title=RC runtime toolchain::App-local release CRT $($crtFile.VersionInfo.FileVersion)"
     $licenses = Join-Path $stage 'licenses'
     [void][IO.Directory]::CreateDirectory($licenses)
     $nuget = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE '.nuget/packages' }
@@ -49,6 +50,7 @@ try {
     }
     # .NET's self-contained runtime brings its own LICENSE/ThirdPartyNotices files.
     Copy-Item -LiteralPath 'packaging/THIRD_PARTY_NOTICES.txt' -Destination $licenses
+    Copy-Item -Path 'packaging/licenses/*' -Destination $licenses
     $runtimeConfig = Get-Content -LiteralPath (Join-Path $stage 'ClipScope.App.runtimeconfig.json') -Raw | ConvertFrom-Json -AsHashtable
     $runtimeVersion = @($runtimeConfig.runtimeOptions.includedFrameworks | Where-Object { $_.name -eq 'Microsoft.NETCore.App' })[0].version
     $runtimePackage = Join-Path $nuget "microsoft.netcore.app.runtime.win-x64/$runtimeVersion"
@@ -94,7 +96,8 @@ try {
         if (-not $?) { throw 'Installer signing failed.' }
     }
     $manifest = [ordered]@{ version = $version.Version; fileVersion = $version.FileVersion; commit = (& git rev-parse HEAD);
-        sdk = (& dotnet --version); compiler = $compilerVersion; runtime = 'win-x64/self-contained';
+        sdk = (& dotnet --version); compiler = $compilerVersion; runtime = 'win-x64/self-contained'; dotnetRuntime = $runtimeVersion;
+        crtVersion = $crtFile.VersionInfo.FileVersion;
         signing = $(if ($SigningCommand) { 'external-signing-hook' } else { 'unsigned-development' });
         installer = (Split-Path $installer -Leaf); sha256 = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash;
         payload = @($files | ForEach-Object { @{ path = $_; sha256 = (Get-FileHash -LiteralPath (Join-Path $stage $_) -Algorithm SHA256).Hash } }) }
