@@ -80,7 +80,6 @@ internal sealed partial class MainWindow
         glyph.HorizontalAlignment = HorizontalAlignment.Left; glyph.Margin = new Thickness(Ui.Space3, 0, 0, 0); glyph.IsHitTestVisible = false;
         _searchKeys = Ui.Keycaps(ClipPresentation.ShortcutKeys(_settings.Shortcut));
         _searchKeys.HorizontalAlignment = HorizontalAlignment.Right; _searchKeys.Margin = new Thickness(0, 0, Ui.Space3, 0); _searchKeys.IsHitTestVisible = false;
-        ToolTipService.SetToolTip(_search, $"Open ClipScope from anywhere with {_settings.Shortcut}");
         _searchHost.Width = 480;
         _searchHost.Children.Add(_search); _searchHost.Children.Add(glyph); _searchHost.Children.Add(_searchKeys);
         _titleBar.Content = _searchHost;
@@ -255,7 +254,8 @@ internal sealed partial class MainWindow
         _compact = compact;
         _sidebarColumn.Width = new GridLength(compact ? Ui.CompactSidebarWidth : Ui.SidebarWidth);
         foreach (var label in _filterLabels) label.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-        _recordingText.Visibility = _pause.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        // Compact: the pause/resume button alone carries the state (its glyph and tooltip).
+        _recordingText.Visibility = _recordingDot.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         _historyColumn.MinWidth = compact ? 280 : 300;
     }
 
@@ -331,7 +331,6 @@ internal sealed partial class MainWindow
     {
         _searchKeys.Children.Clear();
         foreach (var key in ClipPresentation.ShortcutKeys(_settings.Shortcut)) _searchKeys.Children.Add(Ui.Keycap(key));
-        ToolTipService.SetToolTip(_search, $"Open ClipScope from anywhere with {_settings.Shortcut}");
     }
 
     private void UpdateCaptionButtons()

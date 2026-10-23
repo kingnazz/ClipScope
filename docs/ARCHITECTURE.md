@@ -111,3 +111,34 @@ Settings use atomic replace with validation. Malformed settings disable capture,
 rather than silently clearing exclusions and re-enabling it. Diagnostics record
 fixed event names, exception types and HRESULTs only. Four approximately 1 MiB
 files bound logging; clipboard values, exception messages and stack traces are omitted.
+
+## User interface
+
+The WinUI 3 presentation layer lives in `ClipScope.App` and is built in C# with a
+small amount of runtime-loaded XAML (the design-system resource dictionary and the
+history row template). There is no XAML compiler step, which keeps the project
+buildable from the .NET command line.
+
+| File | Responsibility |
+| --- | --- |
+| `Design/DesignSystem.cs` | Spacing scale, typography/surface/icon styles, keycaps and Fluent glyphs. Every color is a Windows semantic theme resource referenced through a style, so light, dark, high contrast, accent color and per-window theme overrides are honored. |
+| `Design/SettingsLayout.cs` | Windows 11 setting cards, page headers and group headings. |
+| `MainWindow.cs` | Window lifecycle and commands: refresh/search, selection, paste/copy, pin, delete, pause, exit. |
+| `MainWindow.Layout.cs` | Shell: Mica window, integrated `TitleBar` with search, filter sidebar, history list, footer, empty states, responsive layout and keyboard handling. |
+| `MainWindow.Settings.cs` | In-window settings page with staged edits applied on Save. |
+| `ClipRow.cs` | History row presentation model and template; images decode lazily at display size. |
+| `ClipDetailView.cs` | Selected clip header, actions, content preview, source snapshot and details. |
+
+Pure formatting (relative time, window-title context, code detection, file
+categories, shortcut keycaps) lives in `ClipScope.Core/Presentation.cs` with tests.
+
+Keyboard model: the search box keeps focus while Up/Down/PageUp/PageDown move the
+history selection. Enter pastes, Ctrl+Enter copies, Ctrl+P pins, Delete (in the
+list) deletes, Ctrl+1–5 choose a filter, Ctrl+F/Ctrl+L focus search, Ctrl+, opens
+settings, and Esc clears the search, then hides the window. Opening with the global
+shortcut selects the newest clip unless a search is active.
+
+UI Automation names are part of the contract with `scripts/smoke-windows.ps1`:
+the search box is "Search clipboard history" and the detail actions are "Paste",
+"Copy", "Pin"/"Unpin" and "Delete". Keep decorative labels from reusing those exact
+names. `scripts/capture-ui-windows.ps1` captures review screenshots in CI.
