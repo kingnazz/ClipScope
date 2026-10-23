@@ -220,7 +220,19 @@ $source.Show()
     (Find-Name 'Settings').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Condition { $null -ne (Find-Name 'Settings sections') } 'clear settings open'
     (Find-Name 'Storage').GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
-    (Find-Name 'Clear unpinned history').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    # The page swaps in asynchronously, and the card header shares the button's name;
+    # wait for the invokable element rather than the first element with that name.
+    $script:clearAction = $null
+    Wait-Condition {
+        $elements = $script:window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty, 'Clear unpinned history')))
+        foreach ($element in $elements) {
+            $provider = $null
+            if ($element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$provider)) { $script:clearAction = $provider; return $true }
+        }
+        return $false
+    } 'storage page clear action'
+    $script:clearAction.Invoke()
     $script:confirmClear = $null
     Wait-Condition {
         # Popups may have a separate UIA root; inspect only our app's process.
