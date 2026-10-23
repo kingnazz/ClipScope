@@ -19,6 +19,9 @@ jobs:
       - name: Build desktop and run tests
         shell: pwsh
         run: ./scripts/validate.ps1
+      - name: Verify desktop test profile safety
+        shell: powershell
+        run: ./scripts/test-windows-test-profile.ps1
       - name: Smoke desktop capture and restoration
         shell: powershell
         run: ./scripts/smoke-windows.ps1
@@ -26,10 +29,9 @@ jobs:
       - name: Capture UI screenshots for review
         continue-on-error: true
         shell: powershell
-        run: |
-          Remove-Item -Recurse -Force (Join-Path $env:LOCALAPPDATA 'ClipScope') -ErrorAction SilentlyContinue
-          ./scripts/capture-ui-windows.ps1 -OutputDirectory artifacts/ui
+        run: ./scripts/capture-ui-windows.ps1 -OutputDirectory artifacts/ui
       - name: Upload UI screenshots
+        continue-on-error: true
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:

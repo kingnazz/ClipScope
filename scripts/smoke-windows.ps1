@@ -6,10 +6,10 @@ if (-not [Environment]::UserInteractive) {
     Write-Output '::notice title=ClipScope desktop smoke::SKIPPED: runner has no interactive desktop'
     exit 0
 }
-$dataDirectory = Join-Path $env:LOCALAPPDATA 'ClipScope'
-if (Test-Path $dataDirectory) {
-    throw 'Desktop smoke requires a fresh isolated user profile; existing ClipScope data is protected.'
-}
+. (Join-Path $PSScriptRoot 'windows-test-profile.ps1')
+Assert-IsolatedDesktopRunner
+$dataDirectory = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ClipScope'
+if (Test-Path -LiteralPath $dataDirectory) { throw 'Existing ClipScope profile is protected.' }
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -17,8 +17,12 @@ Add-Type @'
 using System;
 using System.Runtime.InteropServices;
 public static class ClipScopeSmokeNative {
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+    [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT rect, int size);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
+    [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
 }
 '@
 # Polls until the condition holds. Clipboard reads can briefly fail with ExternalException
@@ -36,6 +40,9 @@ function Wait-Condition([scriptblock] $Condition, [string] $Description) {
     throw "Timed out waiting for $Description."
 }
 $script:app = $null
+$source = $null
+$profile = New-OwnedTestDirectory $dataDirectory
+try {
 $source = New-Object System.Windows.Forms.Form
 $source.Text = 'ClipScope CI Source'
 $source.Width = 500; $source.Height = 200
@@ -45,9 +52,7 @@ $destination.Multiline = $true; $destination.Dock = [System.Windows.Forms.DockSt
 $source.Controls.Add($destination)
 $source.Show()
 # Exercise the real persisted screenshot preference, never a production test hook.
-[void](New-Item -Path $dataDirectory -ItemType Directory)
 '{"ScreenshotsEnabled":true}' | Set-Content -Path (Join-Path $dataDirectory 'settings.json') -Encoding UTF8
-try {
     $exe = Join-Path (Split-Path $PSScriptRoot -Parent) 'src/ClipScope.App/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64/ClipScope.App.exe'
     $script:app = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe -Parent) -PassThru
     $script:window = $null
@@ -62,6 +67,15 @@ try {
     function Find-Name([string] $Name) {
         return $script:window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
             (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty, $Name)))
+    }
+    function Find-Pattern([string] $Name, $Pattern) {
+        $elements = $script:window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty, $Name)))
+        foreach ($element in $elements) {
+            $provider = $null
+            if ($element.TryGetCurrentPattern($Pattern, [ref]$provider)) { return $provider }
+        }
+        throw 'Required UI automation pattern is unavailable.'
     }
     # The owner is a Forms clipboard helper HWND; the real foreground title must
     # still be attributed to this visible source window.
@@ -91,6 +105,12 @@ try {
         if ($image.Width -lt 100 -or $image.Height -lt 80 -or $image.Width -gt 1000 -or $image.Height -gt 600) {
             throw 'Source-window screenshot has unexpected dimensions.'
         }
+        $visibleFrame = New-Object ClipScopeSmokeNative+RECT
+        if ([ClipScopeSmokeNative]::DwmGetWindowAttribute($source.Handle, 9, [ref]$visibleFrame, 16) -eq 0) {
+            if ($image.Width -ne ($visibleFrame.Right - $visibleFrame.Left) -or $image.Height -ne ($visibleFrame.Bottom - $visibleFrame.Top)) {
+                throw 'Source snapshot did not crop to the visible DWM frame.'
+            }
+        }
     } finally { $image.Dispose() }
     [System.Windows.Forms.Clipboard]::Clear()
     $copy = Find-Name 'Copy'
@@ -106,6 +126,69 @@ try {
     $value = $search.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
     $value.SetValue('no-matching-clip-unique-query')
     Wait-Condition { $null -eq (Find-Name $fixture) } 'search excluding unmatched content'
+    # A nonmatching pending query must not copy the previous selection.
+    [System.Windows.Forms.Clipboard]::Clear()
+    $search.SetFocus()
+    [System.Windows.Forms.SendKeys]::SendWait('^{ENTER}')
+    Start-Sleep -Milliseconds 400
+    if ([System.Windows.Forms.Clipboard]::ContainsText()) { throw 'A stale search result was copied.' }
+    # Copy a second clip, then issue commands without waiting for search debounce.
+    $value.SetValue('')
+    $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
+    [System.Windows.Forms.Clipboard]::SetText('ClipScope second item gamma')
+    Wait-Condition { $null -ne (Find-Name 'ClipScope second item gamma') } 'second captured clip'
+    [System.Windows.Forms.SendKeys]::SendWait('^+v')
+    Wait-Condition { [ClipScopeSmokeNative]::GetForegroundWindow() -eq [IntPtr]$script:window.Current.NativeWindowHandle } 'activation for immediate commands'
+    $value.SetValue('gamma'); $search.SetFocus()
+    [System.Windows.Forms.SendKeys]::SendWait('^p')
+    Wait-Condition { $null -ne (Find-Name 'Unpin') } 'pin after immediate query change'
+    [System.Windows.Forms.SendKeys]::SendWait('^p')
+    Wait-Condition { $null -ne (Find-Name 'Pin') } 'unpin second clip'
+    $value.SetValue('192.168'); $search.SetFocus()
+    [System.Windows.Forms.SendKeys]::SendWait('^{ENTER}')
+    Wait-Condition { [System.Windows.Forms.Clipboard]::GetText() -eq $fixture } 'Ctrl+Enter after immediate query change'
+    if ($destination.Text.Length -ne 0) { throw 'Ctrl+Enter pasted instead of copying.' }
+    Wait-Condition { $null -ne (Find-Name 'Unpin') } 'original clip still pinned'
+    # Cancel must discard staged privacy edits. A failed Save must retain the
+    # original shortcut and exact startup registry entry as well as the file.
+    (Find-Name 'Settings').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Condition { $null -ne (Find-Name 'Settings sections') } 'settings open'
+    (Find-Name 'Privacy').GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    (Find-Pattern 'Excluded apps, one executable path or process name per line' ([System.Windows.Automation.ValuePattern]::Pattern)).SetValue('ClipScopeNeverExcludeTest')
+    (Find-Name 'Cancel').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    if ([IO.File]::ReadAllText((Join-Path $dataDirectory 'settings.json')).Contains('ClipScopeNeverExcludeTest')) { throw 'Cancel persisted staged privacy edits.' }
+    (Find-Name 'Settings').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Condition { $null -ne (Find-Name 'Shortcut key') } 'general settings'
+    (Find-Pattern 'Shortcut key' ([System.Windows.Automation.ValuePattern]::Pattern)).SetValue('Y')
+    $runKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run')
+    try { $previousStartup = if ($runKey) { $runKey.GetValue('ClipScope', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) } else { $null } }
+    finally { if ($runKey) { $runKey.Dispose() } }
+    (Find-Pattern 'Start with Windows' ([System.Windows.Automation.TogglePattern]::Pattern)).Toggle()
+    $beforeSave = [IO.File]::ReadAllText((Join-Path $dataDirectory 'settings.json'))
+    $lockedSettings = [IO.File]::Open((Join-Path $dataDirectory 'settings.json'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    try {
+        (Find-Name 'Save').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        Wait-Condition { $null -ne (Find-Name 'Could not save settings. Check the values, shortcut availability and storage permissions.') } 'failed settings save rollback'
+    } finally { $lockedSettings.Dispose() }
+    if ([IO.File]::ReadAllText((Join-Path $dataDirectory 'settings.json')) -cne $beforeSave) { throw 'Failed Save changed persisted settings.' }
+    $runKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run')
+    try { $afterStartup = if ($runKey) { $runKey.GetValue('ClipScope', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) } else { $null } }
+    finally { if ($runKey) { $runKey.Dispose() } }
+    if ($afterStartup -cne $previousStartup) { throw 'Failed Save changed startup registration.' }
+    if (-not [ClipScopeSmokeNative]::RegisterHotKey([IntPtr]::Zero, 41, 0x4006, 0x59)) { throw 'Failed Save retained the reserved new hotkey.' }
+    [void][ClipScopeSmokeNative]::UnregisterHotKey([IntPtr]::Zero, 41)
+    # Retry succeeds, then change back to the default shortcut for the paste test.
+    (Find-Pattern 'Start with Windows' ([System.Windows.Automation.TogglePattern]::Pattern)).Toggle()
+    (Find-Name 'Save').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Condition { $null -eq (Find-Name 'Settings sections') } 'successful settings retry'
+    $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
+    [System.Windows.Forms.SendKeys]::SendWait('^+y')
+    Wait-Condition { [ClipScopeSmokeNative]::GetForegroundWindow() -eq [IntPtr]$script:window.Current.NativeWindowHandle } 'changed global shortcut'
+    (Find-Name 'Settings').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Condition { $null -ne (Find-Name 'Shortcut key') } 'settings after successful save'
+    (Find-Pattern 'Shortcut key' ([System.Windows.Automation.ValuePattern]::Pattern)).SetValue('V')
+    (Find-Name 'Save').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Condition { $null -eq (Find-Name 'Settings sections') } 'default shortcut saved'
     $value.SetValue('192.168')
     Wait-Condition { $null -ne (Find-Name $fixture) } 'FTS matching historical text'
     $source.Activate(); $destination.Focus()
@@ -122,7 +205,7 @@ try {
     $delete.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Condition { $null -eq (Find-Name $fixture) } 'clip deletion from history'
     Wait-Condition { -not (Test-Path $script:contextImage.FullName) } 'deleted clip media cleanup'
-    Write-Output '::notice title=ClipScope desktop smoke::PASS: launch, text capture, source-window context, screenshot PNG, clipboard restoration, pin, FTS search, global shortcut, focus/paste, deletion and media cleanup'
+    Write-Output '::notice title=ClipScope desktop smoke::PASS: launch, text capture, source-window context, screenshot PNG, clipboard restoration, pin, FTS search, global shortcut, focus/paste, deletion, media cleanup, immediate commands, settings Cancel, failed Save rollback and shortcut replacement'
 } catch {
     Write-Output ("::error title=ClipScope desktop smoke::" + $_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A'))
     $diagnostic = Join-Path $env:LOCALAPPDATA 'ClipScope/logs/diagnostic.log'
@@ -131,7 +214,12 @@ try {
     }
     throw
 } finally {
-    if ($script:app -and -not $script:app.HasExited) { Stop-Process -Id $script:app.Id -Force }
-    $source.Close(); $source.Dispose()
+    if ($script:app -and -not $script:app.HasExited) {
+        Stop-Process -Id $script:app.Id -Force
+        if (-not $script:app.WaitForExit(5000)) { throw 'Test process did not stop; profile left intact.' }
+    }
+    if ($source) { $source.Close(); $source.Dispose() }
+    if ($script:app) { $script:app.Dispose() }
     [System.Windows.Forms.Clipboard]::Clear()
+    Remove-OwnedTestDirectory $profile
 }
