@@ -1,4 +1,4 @@
-# powershell.exe -NoProfile -STA -File scripts/stress-windows.ps1
+﻿# powershell.exe -NoProfile -STA -File scripts/stress-windows.ps1
 # Installs only on a fresh GitHub-hosted desktop, with synthetic clipboard data.
 param([int] $Minutes = 20, [int] $Operations = 2000, [string] $OutputDirectory = 'artifacts/rc')
 $ErrorActionPreference = 'Stop'
@@ -54,6 +54,7 @@ try {
     $counter = Start-Process dotnet -ArgumentList $counterArgs -WorkingDirectory $root -PassThru -RedirectStandardOutput (Join-Path $evidence 'counters-stdout.txt') -RedirectStandardError (Join-Path $evidence 'counters-stderr.txt')
     Sample-Resources 'baseline'
     $warm = @(); $hotkey = @(); $captureLatency = @()
+    $imageSelectionMs = $null
     $session = [Diagnostics.Stopwatch]::StartNew()
     $interval = [TimeSpan]::FromMinutes($Minutes).TotalMilliseconds / $Operations
     for ($index = 0; $index -lt $Operations; $index++) {
@@ -78,6 +79,25 @@ try {
             $producer.Activate(); [void][ClipScopeRcNative]::SetForegroundWindow($producer.Handle)
             $watch.Restart(); Open-RcHistory $app 'hotkey'; $hotkey += $watch.Elapsed.TotalMilliseconds; Close-RcHistory
         }
+        if ($index -eq 0) {
+            Open-RcHistory $app
+            $imagesFilter = Get-RcPattern 'Images' ([System.Windows.Automation.SelectionItemPattern]::Pattern)
+            $watch.Restart(); $imagesFilter.Select()
+            Wait-Rc {
+                $decoded = $script:window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                    (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty, '160 × 100 pixels')))
+                $null -ne $decoded
+            } 'clipboard image decoded in detail pane'
+            $imageSelectionMs = $watch.Elapsed.TotalMilliseconds
+            [System.Windows.Forms.Clipboard]::Clear(); Invoke-RcAction 'Copy'
+            Wait-Rc { [System.Windows.Forms.Clipboard]::ContainsImage() } 'native image restored from history'
+            $restored = [System.Windows.Forms.Clipboard]::GetImage()
+            try {
+                if ($restored.Width -ne 160 -or $restored.Height -ne 100 -or $restored.GetPixel(80,50).ToArgb() -ne [Drawing.Color]::FromArgb(255,0,80,160).ToArgb()) { throw 'Restored image dimensions or pixel differ.' }
+            } finally { $restored.Dispose() }
+            (Get-RcPattern 'All clips' ([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select()
+            Close-RcHistory
+        }
         if ($index -eq [int]($Operations / 2)) {
             Open-RcHistory $app
             Invoke-RcAction 'Settings'
@@ -101,15 +121,26 @@ try {
     Stop-RcApp $exe $app
     if (-not $counter.WaitForExit(15000)) { $counter.Kill(); throw 'Managed counter collection did not stop with the app.' }
     if (-not (Test-Path $counterFile) -or (Get-Item $counterFile).Length -lt 100) { throw 'No managed heap evidence was recorded.' }
+    $heap = @(Import-Csv -LiteralPath $counterFile | Where-Object { $_.'Counter Name' -eq 'GC Heap Size (MB)' } | ForEach-Object { [double]::Parse($_.'Mean/Increment',[Globalization.CultureInfo]::InvariantCulture) })
+    if ($heap.Count -lt 2) { throw 'Managed heap counter samples are missing.' }
+    $heapSummary = @{ firstMB=$heap[0]; lastMB=$heap[$heap.Count-1]; minMB=($heap | Measure-Object -Minimum).Minimum; maxMB=($heap | Measure-Object -Maximum).Maximum; samples=$heap.Count }
+    $trend = @(); for ($sampleIndex = 0; $sampleIndex -lt $samples.Count; $sampleIndex += 10) {
+        $point = $samples[$sampleIndex]
+        $trend += @{ stage=$point.stage; privateWorkingSetMB=[Math]::Round($point.privateWorkingSetBytes/1MB,2); privateMB=[Math]::Round($point.privateBytes/1MB,2); handles=$point.handles; gdi=$point.gdi; user=$point.user }
+    }
     @{ os = [Environment]::OSVersion.VersionString; sha = (& git -C $root rev-parse HEAD); durationMinutes = $elapsedMinutes;
        generatedOperations = $Operations; persistedClips = $probe.clips; coldLaunchMs = $coldMs;
        idleCpuOneCorePercent = $idleCpu; trayCallbackReopenMs = $warm; globalHotkeyFocusMs = $hotkey;
-       hiddenCaptureProbeMs = $captureLatency; latencyNote = 'UIA polling at 50ms; capture probes include diagnostic process startup';
+       hiddenCaptureProbeMs = $captureLatency; imageFilterToDecodedMs = $imageSelectionMs; imageRoundtrip = 'PASS dimensions and sampled pixel'; latencyNote = 'UIA polling at 50ms; capture probes include diagnostic process startup';
+       resourceTrend = $trend; heapSummary = $heapSummary;
        managedHeap = 'managed-heap.csv (EventCounters gc-heap-size MB)'; integrity = $probe.integrity;
        result = 'Measurements complete; inspect trends against observed baseline before assigning leak thresholds.' } |
         ConvertTo-Json -Depth 5 | Set-Content (Join-Path $evidence 'stress.json') -Encoding UTF8
     $summary = "Measured $Operations operations, $($probe.clips) persisted, $([Math]::Round($elapsedMinutes,1)) min; cold=$([Math]::Round($coldMs))ms idle=$([Math]::Round($idleCpu,3))% of one core; private WS $($samples[0].privateWorkingSetBytes)->$($samples[$samples.Count-1].privateWorkingSetBytes), handles $($samples[0].handles)->$($samples[$samples.Count-1].handles), GDI $($samples[0].gdi)->$($samples[$samples.Count-1].gdi), USER $($samples[0].user)->$($samples[$samples.Count-1].user)."
     Write-Output "::notice title=RC stress measurements::$summary"
+    Write-Output ('::notice title=RC heap measurements::' + ($heapSummary | ConvertTo-Json -Compress))
+    Write-Output ('::notice title=RC resource trend::' + ($trend | ConvertTo-Json -Compress))
+    Write-Output ('::notice title=RC UI latency samples::' + (@{ coldMs=$coldMs; trayCallbackMs=$warm; hotkeyMs=$hotkey; captureProbeMs=$captureLatency; imageFilterToDecodedMs=$imageSelectionMs } | ConvertTo-Json -Compress))
     $remove = Start-Process (Join-Path $install 'unins000.exe') -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
     if ($remove.ExitCode -ne 0) { throw 'Stress uninstall failed.' }
 } catch {

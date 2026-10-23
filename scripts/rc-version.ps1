@@ -10,5 +10,5 @@ function Get-ClipScopeVersion([string] $Override = '') {
     [PSCustomObject]@{ Version = $value; FileVersion = ($parts -join '.'); Prefix = ($parts[0..2] -join '.');
         Publisher = [string]$props.Project.PropertyGroup.Company; AppId = 'ClipScope.Desktop';
         Compiler = [string]$props.Project.PropertyGroup.ClipScopeInstallerCompilerVersion;
-        Runtime = [string]$props.Project.PropertyGroup.RuntimeFrameworkVersion; Crt = [string]$props.Project.PropertyGroup.ClipScopeCrtVersion }
+        Runtime = [string]$props.Project.PropertyGroup.ClipScopeDotnetRuntimeVersion; Crt = [string]$props.Project.PropertyGroup.ClipScopeCrtVersion }
 }

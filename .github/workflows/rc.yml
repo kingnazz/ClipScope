@@ -40,6 +40,9 @@ jobs:
           ./scripts/package-rc.ps1
           . ./scripts/rc-version.ps1
           "version=$((Get-ClipScopeVersion).Version)" >> $env:GITHUB_OUTPUT
+      - name: Record actual desktop environment
+        shell: powershell
+        run: ./scripts/rc-environment.ps1
       - name: Validate installed application and data policy
         shell: pwsh
         run: |

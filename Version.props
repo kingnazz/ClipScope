@@ -14,7 +14,7 @@
     <Description>Local clipboard history with source context for Windows 11.</Description>
     <Copyright>Copyright (c) 2026 ClipScope contributors. Development publisher placeholder.</Copyright>
     <RepositoryUrl>https://github.com/kingnazz/ClipScope</RepositoryUrl>
-    <RuntimeFrameworkVersion>10.0.13</RuntimeFrameworkVersion>
+    <ClipScopeDotnetRuntimeVersion>10.0.13</ClipScopeDotnetRuntimeVersion>
     <ClipScopeInstallerCompilerVersion>6.7.1</ClipScopeInstallerCompilerVersion>
     <ClipScopeCrtVersion>14.51.36247.0</ClipScopeCrtVersion>
   </PropertyGroup>

@@ -1,4 +1,4 @@
-# Real applications on the isolated hosted desktop. Does not certify Windows 11.
+﻿# Real applications on the isolated hosted desktop. Does not certify Windows 11.
 param([string] $OutputDirectory = 'artifacts/rc')
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'windows-rc-common.ps1')
