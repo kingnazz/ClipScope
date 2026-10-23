@@ -1,8 +1,10 @@
 # Run with Windows PowerShell 5.1 in STA: powershell -Sta -File scripts/smoke-windows.ps1
 # Uses an isolated CI desktop and known synthetic content. Never run against an
 # existing user data directory: the script refuses to touch one.
+param([string] $ExecutablePath = '', [switch] $RequireDesktop)
 $ErrorActionPreference = 'Stop'
 if (-not [Environment]::UserInteractive) {
+    if ($RequireDesktop) { throw 'An interactive desktop is required for installed acceptance.' }
     Write-Output '::notice title=ClipScope desktop smoke::SKIPPED: runner has no interactive desktop'
     exit 0
 }
@@ -55,7 +57,7 @@ $source.Controls.Add($destination)
 $source.Show()
 # Exercise the real persisted screenshot preference, never a production test hook.
 '{"ScreenshotsEnabled":true}' | Set-Content -Path (Join-Path $dataDirectory 'settings.json') -Encoding UTF8
-    $exe = Join-Path (Split-Path $PSScriptRoot -Parent) 'src/ClipScope.App/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64/ClipScope.App.exe'
+    $exe = if ($ExecutablePath) { $ExecutablePath } else { Join-Path (Split-Path $PSScriptRoot -Parent) 'src/ClipScope.App/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64/ClipScope.App.exe' }
     $script:app = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe -Parent) -PassThru
     $script:window = $null
     Wait-Condition {

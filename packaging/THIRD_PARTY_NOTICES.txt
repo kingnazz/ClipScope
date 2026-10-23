@@ -1,0 +1,26 @@
+ClipScope development distribution
+
+Windows App SDK and WinUI: Microsoft software license terms and notices are
+included alongside this file. Redistributed native files are the package-selected
+self-contained runtime, not Windows SDK tools.
+
+.NET runtime: .NET Foundation and contributors, MIT license. See the runtime's
+LICENSE.txt and ThirdPartyNotices.txt in the application directory.
+
+Microsoft Visual C++ release CRT: Microsoft Corporation. App-local release CRT
+files are redistributed from Visual Studio's VC/Redist/MSVC/x64/Microsoft.VC143.CRT
+under Microsoft's Distributable Code terms. Universal CRT system components are
+provided by the supported Windows 11 OS. No debug CRT or SDK tools are distributed.
+https://learn.microsoft.com/visualstudio/releases/2022/redistribution
+
+SQLite: public domain. Microsoft.Data.Sqlite and SQLitePCLRaw: their respective
+upstream license terms apply. The NuGet lockfiles record the exact dependencies.
+https://www.sqlite.org/copyright.html
+https://github.com/dotnet/efcore/blob/main/LICENSE.txt
+https://github.com/ericsink/SQLitePCL.raw/blob/master/LICENSE.TXT
+
+Installer created using Inno Setup, Copyright Jordan Russell and Martijn Laan.
+https://jrsoftware.org/isinfo.php
+
+ClipScope publisher identity and final application distribution terms are still
+development placeholders. This file does not replace the accompanying licenses.
