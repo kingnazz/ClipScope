@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using ClipScope.App.Design;
 using ClipScope.Core;
+using ClipScope.Infrastructure;
 using ClipScope.Windows;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -16,9 +17,12 @@ namespace ClipScope.App;
 internal sealed partial class MainWindow
 {
     private Grid? _settingsView;
+    private bool _settingsBusy;
+    private readonly SemaphoreSlim _settingsGate = new(1);
 
     private void ShowSettings()
     {
+        if (_exiting) return;
         AppWindow.Show(); Activate(); WindowContext.ShowApp(WinRT.Interop.WindowNative.GetWindowHandle(this));
         if (_settingsView is not null) return;
         try
@@ -35,6 +39,7 @@ internal sealed partial class MainWindow
 
     private void CloseSettings()
     {
+        if (_settingsBusy) return;
         if (_settingsView is not null) _root.Children.Remove(_settingsView);
         _settingsView = null;
         _body.Visibility = Visibility.Visible;
@@ -119,7 +124,7 @@ internal sealed partial class MainWindow
         AutomationProperties.SetName(clear, "Clear unpinned history");
         var clearStatus = Ui.Text("CsCaptionTextStyle", wrap: true);
         clearStatus.Visibility = Visibility.Collapsed;
-        clearStatus.RegisterPropertyChangedCallback(TextBlock.TextProperty, (_, _) => clearStatus.Visibility = clearStatus.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed);
+
         var confirm = new Button { Content = "Delete unpinned clips", Style = Ui.Style("AccentButtonStyle") };
         var confirmPanel = new StackPanel { Spacing = Ui.Space3, MaxWidth = 300 };
         confirmPanel.Children.Add(new TextBlock { Text = "Delete all unpinned clips?", Style = Ui.Style("CsBodyStrongTextStyle") });
@@ -129,18 +134,19 @@ internal sealed partial class MainWindow
         clear.Flyout = flyout;
         confirm.Click += async (_, _) =>
         {
-            flyout.Hide(); clear.IsEnabled = false; clearStatus.Text = "Clearing…";
+            if (!confirm.IsEnabled || _settingsBusy) return;
+            flyout.Hide(); clear.IsEnabled = confirm.IsEnabled = false; clearStatus.Visibility = Visibility.Visible; clearStatus.Text = "Clearing…";
             try
             {
                 await Task.Run(async () =>
                 {
                     foreach (var clip in (await _repository.ListForMaintenanceAsync()).Where(x => !x.IsPinned))
-                        if (await _repository.DeleteIfUnpinnedAsync(clip.Id)) _media.Delete(clip.MediaPaths);
+                        if (await _repository.DeleteUnpinnedWithMediaAsync(clip.Id) is { } references) _media.Delete(references);
                 });
                 clearStatus.Text = "Unpinned history cleared."; await RefreshAsync();
             }
             catch (Exception e) { _log.Write("storage.clear_failed", e); clearStatus.Text = "Could not clear history. Check storage permissions and try again."; }
-            finally { clear.IsEnabled = true; }
+            finally { clear.IsEnabled = confirm.IsEnabled = true; }
         };
         var storage = SettingsLayout.Page("Storage", "How long history is kept and where it lives. Everything stays on this PC.");
         storage.Children.Add(SettingsLayout.Card(Glyph.Calendar, "Keep history for", "Older clips are removed automatically. Pinned clips are always kept.", SettingsLayout.WithUnit(days, "days")));
@@ -159,8 +165,7 @@ internal sealed partial class MainWindow
             // Live preview; Cancel restores the saved theme.
             var preview = (AppTheme)Math.Max(0, theme.SelectedIndex);
             _root.RequestedTheme = preview switch { AppTheme.Dark => ElementTheme.Dark, AppTheme.Light => ElementTheme.Light, _ => ElementTheme.Default };
-            AppWindow.TitleBar.PreferredTheme = preview switch
-            { AppTheme.Dark => Microsoft.UI.Windowing.TitleBarTheme.Dark, AppTheme.Light => Microsoft.UI.Windowing.TitleBarTheme.Light, _ => Microsoft.UI.Windowing.TitleBarTheme.UseDefaultAppMode };
+            UpdateCaptionButtons();
         };
         var appearance = SettingsLayout.Page("Appearance", "Choose how ClipScope looks.");
         appearance.Children.Add(SettingsLayout.Card(Glyph.Theme, "App theme", "Use system setting follows your Windows light or dark mode.", null, theme));
@@ -227,31 +232,31 @@ internal sealed partial class MainWindow
 
         save.Click += async (_, _) =>
         {
-            save.IsEnabled = false; error.Text = "";
-            var shortcutChanged = false;
+            if (_settingsBusy) return;
+            _settingsBusy = true; nav.IsEnabled = scroller.IsEnabled = save.IsEnabled = cancel.IsEnabled = false; error.Text = "";
+            await _settingsGate.WaitAsync();
             try
             {
                 var hotkey = new Hotkey(modifierButtons.Where(x => x.Button.IsChecked == true).Aggregate(0u, (value, x) => value | x.Item1),
                     key.Text.Length == 1 ? char.ToUpperInvariant(key.Text[0]) : 0u);
                 if (!hotkey.IsValid) { error.Text = "Choose at least one modifier and a letter or number for the shortcut."; nav.SelectedIndex = 0; return; }
-                var updated = original with {
+                var current = _settings;
+                var updated = current with {
                     LaunchAtStartup = startup.IsOn, MinimizeToTray = minimize.IsOn, Shortcut = hotkey,
-                    CaptureEnabled = capture.IsOn, ScreenshotsEnabled = screenshots.IsOn,
+                    CaptureEnabled = capture.IsOn == original.CaptureEnabled ? current.CaptureEnabled : capture.IsOn, ScreenshotsEnabled = screenshots.IsOn,
                     MaxTextBytes = checked((int)maxText.Value * 1024), MaxImageBytes = checked((int)maxImage.Value * 1048576),
                     RetentionDays = checked((int)days.Value), MaxMediaBytes = checked((long)budget.Value * 1048576),
                     ExcludedApplications = exclusions.Text.Split(['\r','\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
                     Theme = (AppTheme)Math.Max(0, theme.SelectedIndex)
                 };
                 updated.Validate();
-                if (hotkey != original.Shortcut)
-                {
-                    if (!await _native.SetHotkeyAsync(hotkey)) { error.Text = "That shortcut is in use by another app. Choose another."; nav.SelectedIndex = 0; return; }
-                    shortcutChanged = true;
-                }
-                StartupIntegration.SetEnabled(updated.LaunchAtStartup);
-                await _settingsStore.SaveAsync(updated);
+                await SettingsTransaction.SaveAsync(updated,
+                    async () => hotkey == current.Shortcut ? null : await _native.PrepareHotkeyAsync(hotkey)
+                        ?? throw new InvalidOperationException("The shortcut could not be reserved."),
+                    () => updated.LaunchAtStartup == current.LaunchAtStartup ? null : StartupIntegration.Prepare(updated.LaunchAtStartup),
+                    value => _settingsStore.SaveAsync(value));
                 _settings = updated; UpdateRecordingState(); UpdateShortcutHints(); UpdateEmptyState();
-                CloseSettings(); FlashStatus("Settings saved");
+                _settingsBusy = false; CloseSettings(); FlashStatus("Settings saved");
                 _ = Task.Run(async () =>
                 {
                     var result = await _capture.CleanupAsync();
@@ -261,11 +266,12 @@ internal sealed partial class MainWindow
             catch (Exception e)
             {
                 _log.Write("settings.save_failed", e);
-                if (shortcutChanged) await _native.SetHotkeyAsync(original.Shortcut);
-                try { StartupIntegration.SetEnabled(original.LaunchAtStartup); } catch (Exception rollback) { _log.Write("startup.rollback_failed", rollback); }
-                error.Text = "Could not save settings. Check the values and storage permissions.";
+                error.Text = e is SettingsRollbackException
+                    ? "Windows could not restore its startup registration. Check Start with Windows and retry Save before exiting."
+                    : "Could not save settings. Check the values, shortcut availability and storage permissions.";
+                FrameworkElementAutomationPeer.FromElement(error)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
             }
-            finally { save.IsEnabled = true; }
+            finally { _settingsGate.Release(); _settingsBusy = false; nav.IsEnabled = scroller.IsEnabled = save.IsEnabled = cancel.IsEnabled = true; }
         };
         view.Loaded += (_, _) => (nav.ContainerFromIndex(0) as ListViewItem)?.Focus(FocusState.Programmatic);
         return view;

@@ -37,6 +37,8 @@ internal sealed partial class MainWindow
     private Button _pause = null!, _newer = null!, _older = null!, _settingsButton = null!;
     private readonly List<TextBlock> _filterLabels = [];
     private bool _compact;
+    private XamlRoot? _observedXamlRoot;
+    private (double Scale, int Width, int Height) _displayMetrics;
 
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint hwnd);
     [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
@@ -58,6 +60,20 @@ internal sealed partial class MainWindow
         _root.SizeChanged += (_, args) => Relayout(args.NewSize.Width);
         _root.KeyDown += OnShellKeyDown;
         _root.ActualThemeChanged += (_, _) => UpdateCaptionButtons();
+        _root.Loaded += (_, _) =>
+        {
+            if (_observedXamlRoot is not null) return;
+            _observedXamlRoot = _root.XamlRoot;
+            if (_observedXamlRoot is not null) _observedXamlRoot.Changed += OnXamlRootChanged;
+            UpdateDisplayMetrics();
+        };
+        AppWindow.Changed += (_, args) => { if (args.DidPositionChange || args.DidPresenterChange) UpdateDisplayMetrics(); };
+        Closed += (_, _) =>
+        {
+            if (_observedXamlRoot is not null) _observedXamlRoot.Changed -= OnXamlRootChanged;
+            _detail.ShowEmpty(true);
+            foreach (var row in _rows) row.Dispose();
+        };
         AutomationProperties.SetLandmarkType(_body, AutomationLandmarkType.Main);
     }
 
@@ -323,6 +339,7 @@ internal sealed partial class MainWindow
             ? count == 1 ? "1 result" : $"{count:N0}{(count == PageSize ? "+" : "")} results"
             : count == 0 ? (_settings.CaptureEnabled ? "Ready" : "Recording paused")
             : count == 1 ? "1 clip" : $"{count:N0}{(count == PageSize ? "+" : "")} clips";
+        FrameworkElementAutomationPeer.FromElement(_status)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
         var paged = _offset > 0 || count == PageSize;
         _pager.Visibility = paged ? Visibility.Visible : Visibility.Collapsed;
         if (paged)
@@ -341,8 +358,7 @@ internal sealed partial class MainWindow
     private void UpdateCaptionButtons()
     {
         // Caption buttons follow the in-app theme choice, including overrides of the system theme.
-        AppWindow.TitleBar.PreferredTheme = _settings.Theme switch
-        { AppTheme.Dark => TitleBarTheme.Dark, AppTheme.Light => TitleBarTheme.Light, _ => TitleBarTheme.UseDefaultAppMode };
+        AppWindow.TitleBar.PreferredTheme = _root.ActualTheme == ElementTheme.Dark ? TitleBarTheme.Dark : TitleBarTheme.Light;
     }
 
     private void SizeToDisplay()
@@ -352,11 +368,24 @@ internal sealed partial class MainWindow
         var width = Math.Min((int)(1280 * scale), (int)(work.Width * 0.92));
         var height = Math.Min((int)(820 * scale), (int)(work.Height * 0.92));
         AppWindow.MoveAndResize(new(work.X + (work.Width - width) / 2, work.Y + (work.Height - height) / 2, width, height));
+        UpdateDisplayMetrics();
+    }
+
+    private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => UpdateDisplayMetrics();
+    private void UpdateDisplayMetrics()
+    {
+        var scale = _root.XamlRoot?.RasterizationScale ?? Math.Max(1, GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96.0);
+        var work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+        var metrics = (scale, work.Width, work.Height);
+        if (metrics == _displayMetrics) return;
+        _displayMetrics = metrics;
+        var minimum = WindowGeometry.MinimumSize(scale, work.Width, work.Height);
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
-            presenter.PreferredMinimumWidth = (int)(820 * scale);
-            presenter.PreferredMinimumHeight = (int)(520 * scale);
+            presenter.PreferredMinimumWidth = minimum.Width;
+            presenter.PreferredMinimumHeight = minimum.Height;
         }
+        _detail?.UpdateImageScale(scale);
     }
 
     // Physical state, not the UI thread's synchronized key state: after the global shortcut
@@ -368,7 +397,7 @@ internal sealed partial class MainWindow
     {
         switch (args.Key)
         {
-            case VirtualKey.Down or VirtualKey.Up or VirtualKey.PageDown or VirtualKey.PageUp when _rows.Count > 0:
+            case VirtualKey.Down or VirtualKey.Up or VirtualKey.PageDown or VirtualKey.PageUp when _rows.Count > 0 && _historySession.IsReady:
                 // Command-palette navigation: the caret stays in search while the selection moves.
                 var step = args.Key switch { VirtualKey.Down => 1, VirtualKey.Up => -1, VirtualKey.PageDown => 8, _ => -8 };
                 _history.SelectedIndex = Math.Clamp(_history.SelectedIndex + step, 0, _rows.Count - 1);

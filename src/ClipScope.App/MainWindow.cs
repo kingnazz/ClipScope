@@ -30,7 +30,9 @@ internal sealed partial class MainWindow : Window
     private nint _pasteTarget;
     private bool _exiting;
     private int _offset;
-    private string _resultsQuery = "";
+    private readonly HistorySession _historySession = new();
+    private Task<bool> _refreshTask = Task.FromResult(false);
+    private bool _commandBusy;
     private const int PageSize = 100;
 
     public MainWindow(DataPaths paths, IDiagnosticLog log, SettingsStore settingsStore, AppSettings settings, SqliteClipRepository repository)
@@ -57,6 +59,7 @@ internal sealed partial class MainWindow : Window
         {
             if (_exiting) return;
             args.Cancel = true;
+            if (_settingsBusy) return;
             if (_settings.MinimizeToTray && _native.TrayAvailable) AppWindow.Hide(); else _ = ExitAsync();
         };
     }
@@ -74,100 +77,142 @@ internal sealed partial class MainWindow : Window
     public void StopNative() => _native.Dispose();
     public void ShowHistory(nint previous = 0)
     {
+        if (_exiting) return;
         var candidate = previous != 0 ? previous : WindowContext.ForegroundHandle;
         if (WindowContext.IsTarget(candidate)) _pasteTarget = candidate;
-        if (_settingsView is not null) CloseSettings();
+        if (_settingsView is not null) { CloseSettings(); if (_settingsView is not null) return; }
         // Opening history starts from the newest clip unless a search is in progress.
-        if (_search.Text.Length == 0 && _rows.Count > 0 && _history.SelectedIndex != 0) _history.SelectedIndex = 0;
+        if (_search.Text.Length == 0)
+        {
+            if (_offset != 0) { _offset = 0; _ = RefreshAsync(selectFirst: true); }
+            else if (_rows.Count > 0 && _history.SelectedIndex != 0) _history.SelectedIndex = 0;
+        }
         if (_rows.Count > 0) _history.ScrollIntoView(_history.SelectedItem ?? _rows[0]);
         var now = DateTimeOffset.Now; foreach (var row in _rows) row.Refresh(now);
         AppWindow.Show(); Activate(); WindowContext.ShowApp(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _search.Focus(FocusState.Programmatic); _search.SelectAll();
     }
-    private async Task RefreshAsync(bool debounce = false, bool selectFirst = false)
+    private Task<bool> RefreshAsync(bool debounce = false, bool selectFirst = false)
+        => _refreshTask = RefreshCoreAsync(debounce, selectFirst);
+
+    private async Task<bool> RefreshCoreAsync(bool debounce, bool selectFirst)
     {
-        _searchCancellation?.Cancel(); _searchCancellation?.Dispose();
-        var cancellation = _searchCancellation = new(); var ct = cancellation.Token;
+        if (_exiting) return false;
+        var selectedIndex = _history.SelectedIndex;
+        var followNewest = selectedIndex == 0 && _search.Text.Length == 0 && _offset == 0;
+        var selectedId = selectFirst || followNewest ? null : (_history.SelectedItem as ClipRow)?.Clip.Id;
+        var query = new SearchRequest(_search.Text, _filter, PageSize, _offset);
+        var version = _historySession.BeginSearch();
+        _history.IsEnabled = false;
+        _selected = null; _detail.ShowEmpty(false);
+        _searchCancellation?.Cancel();
+        // Each operation owns/disposes its CTS after its last use.
+        using var cancellation = new CancellationTokenSource();
+        _searchCancellation = cancellation;
+        var ct = cancellation.Token;
         try
         {
             if (debounce) await Task.Delay(160, ct);
-            var text = _search.Text;
-            var query = new SearchRequest(text, _filter, PageSize, _offset);
             var results = await Task.Run(() => _repository.SearchAsync(query, ct), ct);
             ct.ThrowIfCancellationRequested();
-            var selectedIndex = _history.SelectedIndex;
-            // While the newest clip is selected in unfiltered history, keep following the newest.
-            var followNewest = selectedIndex == 0 && text.Length == 0 && _offset == 0;
-            var selectedId = selectFirst || followNewest ? null : (_history.SelectedItem as ClipRow)?.Clip.Id ?? _selected?.Id;
+            if (_exiting || version != _historySession.Version) return false;
             var now = DateTimeOffset.Now;
+            foreach (var oldRow in _rows) oldRow.Dispose();
             _rows.Clear(); foreach (var result in results) _rows.Add(new(result, Absolute(result.IconPath), Absolute(result.ThumbnailPath), now));
-            _resultsQuery = text;
-            // Keep the selected clip; after it disappears (deletion) keep the same position.
+            _historySession.CompleteSearch(version);
             _history.SelectedItem = _rows.FirstOrDefault(x => x.Clip.Id == selectedId)
                 ?? (selectedId is not null && selectedIndex >= 0 && _rows.Count > 0 ? _rows[Math.Min(selectedIndex, _rows.Count - 1)] : _rows.FirstOrDefault());
             if (_history.SelectedItem is { } item) _history.ScrollIntoView(item);
-            if (_rows.Count == 0) { _selected = null; EmptyDetail(); }
+            if (_rows.Count == 0) EmptyDetail();
+            _history.IsEnabled = true;
             UpdateEmptyState(); UpdateRecordingState(); UpdateStatus();
+            return true;
         }
-        catch (OperationCanceledException) { }
-        catch (Exception e) { _log.Write("search.failed", e); Notice("History could not be loaded. Check available storage and try again."); }
+        catch (OperationCanceledException) { return false; }
+        catch (Exception e)
+        {
+            if (version == _historySession.Version)
+            { _log.Write("search.failed", e); Notice("History could not be loaded. Check available storage and try again."); }
+            return false;
+        }
+        finally { if (ReferenceEquals(_searchCancellation, cancellation)) _searchCancellation = null; }
     }
     private async Task LoadSelectionAsync()
     {
-        _detailCancellation?.Cancel(); _detailCancellation?.Dispose();
-        var cancellation = _detailCancellation = new(); var ct = cancellation.Token;
-        if (_history.SelectedItem is not ClipRow row) return;
-        _selected = null;
+        _detailCancellation?.Cancel();
+        _historySession.Select((_history.SelectedItem as ClipRow)?.Clip.Id);
+        _selected = null; EmptyDetail();
+        var target = _historySession.Target;
+        if (target is null) return;
+        using var cancellation = new CancellationTokenSource();
+        _detailCancellation = cancellation;
+        var ct = cancellation.Token;
         try
         {
-            var clip = await Task.Run(() => _repository.GetAsync(row.Clip.Id, ct), ct); ct.ThrowIfCancellationRequested();
-            _selected = clip; if (clip is null) { EmptyDetail(); return; }
-            _detail.Show(clip, row);
+            var clip = await Task.Run(() => _repository.GetAsync(target.Id, ct), ct);
+            ct.ThrowIfCancellationRequested();
+            if (_exiting || !_historySession.IsCurrent(target)) return;
+            _selected = clip;
+            if (clip is not null && _history.SelectedItem is ClipRow row) _detail.Show(clip, row);
         }
         catch (OperationCanceledException) { }
         catch (Exception e) { _log.Write("preview.failed", e); Notice("This clip could not be previewed. It may have been removed."); }
+        finally { if (ReferenceEquals(_detailCancellation, cancellation)) _detailCancellation = null; }
     }
-    private async Task RestoreAsync(bool paste)
+    private async Task RunHistoryCommandAsync(Func<Clip, Task> command)
     {
-        if (_history.SelectedItem is not ClipRow row) return;
-        if (_selected?.Id != row.Clip.Id) await LoadSelectionAsync();
-        var clip = _selected; if (clip is null) return;
+        if (_commandBusy || _settingsView is not null || _exiting) return;
+        _commandBusy = true;
         try
+        {
+            var version = _historySession.Version;
+            var target = _historySession.Target;
+            if (target is null)
+            {
+                // Flush the current text/filter/page search, never the previous results.
+                if (!await _refreshTask || version != _historySession.Version) return;
+                target = _historySession.Target;
+            }
+            if (target is null || !_historySession.IsCurrent(target)) return;
+            var clip = await Task.Run(() => _repository.GetAsync(target.Id));
+            if (clip is null || _exiting || !_historySession.IsCurrent(target)) return;
+            await command(clip);
+        }
+        catch (Exception e) { _log.Write("history.command_failed", e); Notice("The clip could not be used. It may have been removed or its media may be missing."); }
+        finally { _commandBusy = false; }
+    }
+    private Task RestoreAsync(bool paste)
+    {
+        var destination = _pasteTarget;
+        return RunHistoryCommandAsync(async clip =>
         {
             if (!await _native.RestoreAsync(clip, clip.PrimaryMediaPath is null ? null : _paths.ResolveMedia(clip.PrimaryMediaPath)))
             { Notice("The clipboard is busy. Try Copy again."); return; }
             if (paste)
             {
-                if (!WindowContext.IsTarget(_pasteTarget)) { Notice("Copied. Activate a destination application and paste with Ctrl+V."); return; }
+                if (!WindowContext.IsTarget(destination)) { Notice("Copied. Activate a destination application and paste with Ctrl+V."); return; }
                 AppWindow.Hide();
-                if (!await PasteService.PasteAsync(_pasteTarget))
+                if (!await PasteService.PasteAsync(destination))
                 { ShowHistory(); Notice("Copied. Windows could not paste automatically; use Ctrl+V in the destination."); }
             }
-            else { FlashStatus("Copied to clipboard"); }
-        }
-        catch (Exception e) { _log.Write("restore.failed", e); Notice("This clip could not be restored. Its media may be missing or damaged."); }
+            else FlashStatus("Copied to clipboard");
+        });
     }
-    // Enter resolves the current search before pasting, so typing then Enter never pastes a stale result.
-    private async Task RestoreCurrentAsync(bool paste)
+    private Task RestoreCurrentAsync(bool paste) => RestoreAsync(paste);
+    private Task PinAsync() => RunHistoryCommandAsync(async clip =>
     {
-        if (_search.Text != _resultsQuery) await RefreshAsync(selectFirst: true);
-        if (_history.SelectedItem is ClipRow row && _selected?.Id != row.Clip.Id) await LoadSelectionAsync();
-        await RestoreAsync(paste);
-    }
-    private async Task PinAsync()
+        await Task.Run(() => _repository.SetPinnedAsync(clip.Id, !clip.IsPinned));
+        await RefreshAsync(); FlashStatus(clip.IsPinned ? "Unpinned" : "Pinned");
+    });
+    private Task DeleteAsync() => RunHistoryCommandAsync(async clip =>
     {
-        if (_selected is not { } clip) return;
-        try { await Task.Run(() => _repository.SetPinnedAsync(clip.Id, !clip.IsPinned)); await RefreshAsync(); FlashStatus(clip.IsPinned ? "Unpinned" : "Pinned"); }
-        catch (Exception e) { _log.Write("pin.failed", e); Notice("The pin could not be saved."); }
-    }
-    private async Task DeleteAsync()
-    {
-        if (_selected is not { } clip) return;
-        try { await Task.Run(async () => _media.Delete(await _repository.DeleteAsync(clip.Id))); await RefreshAsync(); FlashStatus("Clip deleted"); }
-        catch (Exception e) { _log.Write("delete.failed", e); Notice("The clip could not be deleted."); }
-    }
+        await Task.Run(async () => _media.Delete(await _repository.DeleteAsync(clip.Id)));
+        await RefreshAsync(); FlashStatus("Clip deleted");
+    });
     private async Task TogglePauseAsync()
     {
+        if (_exiting) return;
+        await _settingsGate.WaitAsync();
         try
         {
             var updated = _settings with { CaptureEnabled = !_settings.CaptureEnabled };
@@ -175,6 +220,7 @@ internal sealed partial class MainWindow : Window
             _settings = updated; UpdateRecordingState(); UpdateEmptyState(); await _settingsStore.SaveAsync(updated);
         }
         catch (Exception e) { _log.Write("settings.pause_failed", e); Notice("Recording state changed for this session, but could not be saved."); }
+        finally { _settingsGate.Release(); }
     }
     private void ApplyAppearance()
     {
@@ -189,7 +235,13 @@ internal sealed partial class MainWindow : Window
     private void FlashStatus(string message) { _status.Text = message; _statusTimer.Stop(); _statusTimer.Start(); }
     private async Task ExitAsync()
     {
-        if (_exiting) return; _exiting = true;
+        if (_exiting) return;
+        if (_settingsBusy || _settingsGate.CurrentCount == 0) { Notice("Wait for settings to finish saving before exiting."); return; }
+        _exiting = true;
+        _statusTimer.Stop();
+        _historySession.BeginSearch();
+        _searchCancellation?.Cancel(); _detailCancellation?.Cancel();
+        _native.Captured -= _capture.Enqueue;
         _native.Dispose();
         try { await _capture.DisposeAsync(); } catch (Exception e) { _log.Write("capture.shutdown_timeout", e); }
         _log.Write("app.shutdown"); Close(); Application.Current.Exit();
