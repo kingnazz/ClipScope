@@ -94,12 +94,12 @@ public sealed partial class ClipRow : INotifyPropertyChanged
             <StackPanel Grid.Column="1" Spacing="3">
               <Grid ColumnSpacing="6" MinHeight="20">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <TextBlock Text="{Binding App}" Style="{StaticResource CsCaptionTextStyle}" FontWeight="SemiBold" MaxWidth="180" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="1" Text="{Binding Context}" Visibility="{Binding ContextVisibility}" Style="{StaticResource CsTertiaryTextStyle}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding App}" Style="{StaticResource CsCaptionTextStyle}" FontWeight="SemiBold" MaxWidth="160" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" Text="{Binding Context}" Visibility="{Binding ContextVisibility}" Style="{StaticResource CsTertiaryTextStyle}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                   <FontIcon Glyph="&#xE7F4;" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Visibility="{Binding SnapshotVisibility}" ToolTipService.ToolTip="Has a source snapshot"/>
                   <FontIcon Glyph="&#xE718;" FontSize="12" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Visibility="{Binding PinVisibility}" ToolTipService.ToolTip="Pinned"/>
-                  <TextBlock Text="{Binding Time}" Style="{StaticResource CsTertiaryTextStyle}" ToolTipService.ToolTip="{Binding Timestamp}"/>
+                  <TextBlock Text="{Binding Time}" Style="{StaticResource CsTertiaryTextStyle}" TextWrapping="NoWrap" ToolTipService.ToolTip="{Binding Timestamp}"/>
                 </StackPanel>
               </Grid>
               <Grid Visibility="{Binding PreviewVisibility}">
