@@ -78,6 +78,26 @@ function Open-RcHistory($Process, [string] $Method = 'tray') {
 function Close-RcHistory {
     $script:window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close()
 }
+function Invoke-RcTrayMenu($Process, [string] $Action) {
+    # Drive the real Win32 popup through the notification callback. Physical
+    # hit-testing of the shell icon remains a separate Windows 11 acceptance item.
+    $hostWindow = [ClipScopeRcNative]::FindWindow('ClipScope.NativeHost.v1',$null)
+    [void][ClipScopeRcNative]::PostMessage($hostWindow,0x8003,[IntPtr]::Zero,[IntPtr]0x205)
+    $script:trayProvider = $null
+    Wait-Rc {
+        $popup = [ClipScopeRcNative]::FindWindow('#32768',$null)
+        if ($popup -eq [IntPtr]::Zero) { return $false }
+        $menu = [System.Windows.Automation.AutomationElement]::FromHandle($popup)
+        if ($menu.Current.ProcessId -ne $Process.Id) { return $false }
+        $item = $menu.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty,$Action)))
+        if (-not $item) { return $false }
+        $provider = $null
+        if ($item.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern,[ref]$provider)) { $script:trayProvider=$provider; return $true }
+        return $false
+    } "tray menu $Action"
+    $script:trayProvider.Invoke()
+}
 function Get-RcProbe([string] $Profile, [string] $Needle) {
     $json = & dotnet (Join-Path (Split-Path $PSScriptRoot -Parent) 'tools/ClipScope.Diagnostics/bin/Release/net10.0/ClipScope.Diagnostics.dll') probe $Profile $Needle
     if ($LASTEXITCODE -ne 0) { throw 'Database probe failed.' }

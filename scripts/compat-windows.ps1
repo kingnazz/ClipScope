@@ -12,7 +12,7 @@ $exe = Join-Path $install 'ClipScope.App.exe'
 if ((Test-Path $install) -or (Test-Path $data) -or (Get-Process 'ClipScope.App' -ErrorAction SilentlyContinue)) { throw 'A fresh hosted desktop is required.' }
 $profile = New-OwnedTestDirectory $data
 $fixtures = New-OwnedTestDirectory (Join-Path $root 'artifacts/compat-fixtures')
-$app = $null; $sourceWindow = [IntPtr]::Zero; $notepad = $null
+$app = $null; $sourceWindow = [IntPtr]::Zero; $notepad = $null; $pauseSource = $null
 $results = New-Object 'System.Collections.Generic.List[object]'
 function Find-Source([string] $Title) {
     $windows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
@@ -115,6 +115,36 @@ try {
     Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force
     $notepad = $null; $sourceWindow = [IntPtr]::Zero
 
+    $pauseSource = New-Object System.Windows.Forms.Form
+    $pauseSource.Text='ClipScope synthetic pause source'; $pauseSource.Show()
+    Invoke-RcTrayMenu $app 'Pause clipboard capture'
+    Wait-Rc { (Get-Content (Join-Path $data 'settings.json') -Raw | ConvertFrom-Json).CaptureEnabled -eq $false } 'tray pause persisted'
+    foreach ($restart in @($false,$true)) {
+        if ($restart) {
+            Stop-RcApp $exe $app
+            $app = Start-Process $exe -ArgumentList '--background' -PassThru
+            Wait-Rc { [ClipScopeRcNative]::FindWindow('ClipScope.NativeHost.v1',$null) -ne [IntPtr]::Zero } 'restart while paused'
+        }
+        $pausedNeedle='rcpaused'+[Guid]::NewGuid().ToString('N')
+        $pauseSource.Activate(); [void][ClipScopeRcNative]::SetForegroundWindow($pauseSource.Handle)
+        Wait-Rc { [ClipScopeRcNative]::GetForegroundWindow() -eq $pauseSource.Handle } 'pause source foreground'
+        [System.Windows.Forms.Clipboard]::SetText($pausedNeedle)
+        Start-Sleep -Seconds 2
+        $record=Get-RcProbe $data $pausedNeedle
+        if ($record.payloadHits -ne 0 -or $record.ftsHits -ne 0) { throw 'Paused capture persisted content, including after restart.' }
+    }
+    Invoke-RcTrayMenu $app 'Resume clipboard capture'
+    Wait-Rc { (Get-Content (Join-Path $data 'settings.json') -Raw | ConvertFrom-Json).CaptureEnabled -eq $true } 'tray resume persisted'
+    $resumedNeedle='rcresumed'+[Guid]::NewGuid().ToString('N')
+    $pauseSource.Activate(); [void][ClipScopeRcNative]::SetForegroundWindow($pauseSource.Handle)
+    [System.Windows.Forms.Clipboard]::SetText($resumedNeedle)
+    Wait-Rc { (Get-RcProbe $data $resumedNeedle).payloadHits -eq 1 } 'capture resumes after paused restart'
+    Invoke-RcTrayMenu $app 'Settings'
+    Wait-Rc { $script:window=Get-RcWindow $app; $script:window -and (Get-RcPattern 'Shortcut key' ([System.Windows.Automation.ValuePattern]::Pattern)) } 'tray Settings opened'
+    Invoke-RcAction 'Cancel'; Close-RcHistory
+    $pauseSource.Close(); $pauseSource.Dispose(); $pauseSource=$null
+    $results.Add(@{ app='Tray menu and pause'; result='PASS real popup Pause/Resume/Settings via notification callback; paused restart does not capture, resume captures' })
+
     foreach ($browser in @(
         @{ name='Edge'; path=(Join-Path ${env:ProgramFiles(x86)} 'Microsoft/Edge/Application/msedge.exe') },
         @{ name='Chrome'; path=(Join-Path $env:ProgramFiles 'Google/Chrome/Application/chrome.exe') })) {
@@ -166,7 +196,8 @@ try {
     $results | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $evidence 'compatibility.json') -Encoding UTF8
     Write-Output '::notice title=RC real apps::PASS: Notepad Unicode/multiline/URL copy and paste; Edge and Chrome when installed CF_HTML/text restoration; Explorer file list restoration; Notepad privacy persisted over restart; actual Explorer restart tray recovery and hotkey'
     foreach ($result in $results) { Write-Output ('::notice title=RC application evidence::' + ($result | ConvertTo-Json -Compress -Depth 8)) }
-    Stop-RcApp $exe $app
+    Invoke-RcTrayMenu $app 'Exit'
+    if (-not $app.WaitForExit(15000)) { throw 'Tray Exit did not stop the app.' }
     $remove = Start-Process (Join-Path $install 'unins000.exe') -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
     if ($remove.ExitCode -ne 0) { throw 'Compatibility uninstall failed.' }
 } catch {
@@ -176,6 +207,7 @@ try {
 } finally {
     if ($app -and -not $app.HasExited) { Stop-RcApp $exe $app }
     if ($notepad) { Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force }
+    if ($pauseSource) { $pauseSource.Close(); $pauseSource.Dispose() }
     if ($sourceWindow -ne [IntPtr]::Zero) { [void][ClipScopeRcNative]::PostMessage($sourceWindow,0x10,[IntPtr]::Zero,[IntPtr]::Zero) }
     [System.Windows.Forms.Clipboard]::Clear()
     Remove-OwnedTestDirectory $profile

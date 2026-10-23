@@ -79,11 +79,22 @@ try {
     $files = @(Get-ChildItem -LiteralPath $stage -File -Recurse | ForEach-Object { [IO.Path]::GetRelativePath($stage, $_.FullName) } | Sort-Object)
     @($files + 'install-files.txt') | Set-Content -LiteralPath (Join-Path $stage 'install-files.txt') -Encoding utf8
     $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
-    $compilerHelp = (& $compiler '/?' 2>&1) -join "`n"
-    $engine = [regex]::Match($compilerHelp, 'Compiler engine version:\s*Inno Setup\s+([0-9]+\.[0-9]+\.[0-9]+)')
+    # Inno 6's /? omits the engine version and ISCC.exe has a 0.0.0.0 PE
+    # version. Compile a tiny throwaway probe (never installed or shipped) to
+    # query the loaded engine's own version banner before packaging the app.
+    $probe = Join-Path $output ('compiler-probe-' + [Guid]::NewGuid().ToString('N'))
+    [void](New-Item -ItemType Directory -Path $probe)
+    $probeScript = Join-Path $probe 'probe.iss'
+    @('[Setup]','AppName=ClipScope compiler probe','AppVersion=0','CreateAppDir=no','Uninstallable=no',
+        "OutputDir=$probe",'OutputBaseFilename=probe') | Set-Content -LiteralPath $probeScript -Encoding ascii
+    $compilerBanner = @(& $compiler $probeScript 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw ('Inno engine probe failed: ' + (($compilerBanner | Select-Object -Last 8) -join ' ')) }
+    $engine = [regex]::Match(($compilerBanner -join "`n"), 'Compiler engine version:\s*Inno Setup\s+([0-9]+\.[0-9]+\.[0-9]+)')
     if (-not $engine.Success) { throw 'Could not read the Inno compiler engine version from its banner.' }
     $compilerVersion = $engine.Groups[1].Value
     if ($compilerVersion -ne $version.Compiler) { throw "Expected Inno Setup $($version.Compiler); found $compilerVersion." }
+    Remove-Item -LiteralPath $probeScript,(Join-Path $probe 'probe.exe')
+    [IO.Directory]::Delete($probe,$false)
     $compile = @("/DPayload=$stage", "/DOutput=$output", "/DAppVersion=$($version.Version)",
         "/DFileVersion=$($version.FileVersion)", "/DPublisher=$($version.Publisher)", "/DAppId=$($version.AppId)", 'packaging/ClipScope.iss')
     if ($SigningCommand) {
