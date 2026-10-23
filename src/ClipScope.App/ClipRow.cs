@@ -23,7 +23,9 @@ public sealed partial class ClipRow : INotifyPropertyChanged
         App = ClipPresentation.AppName(clip.SourceApp);
         Context = ClipPresentation.WindowContext(clip.WindowTitle, App);
         Preview = clip.Kind == ClipKind.Image && ShowsThumbnail ? "" : ClipPresentation.PreviewLine(clip.Preview);
-        PreviewFont = clip.Kind == ClipKind.Text && ClipPresentation.LooksLikeCode(clip.Preview) ? MonoFamily : TextFamily;
+        var code = clip.Kind == ClipKind.Text && ClipPresentation.LooksLikeCode(clip.Preview);
+        PreviewFont = code ? MonoFamily : TextFamily;
+        PreviewFontSize = code ? 13 : 14;
         KindGlyph = clip.Kind switch
         {
             ClipKind.Files => Glyph.ForFile(ClipPresentation.CategorizeFile(clip.Preview.Split(" · ")[0])),
@@ -39,6 +41,7 @@ public sealed partial class ClipRow : INotifyPropertyChanged
     public string Preview { get; }
     public string KindGlyph { get; }
     public FontFamily PreviewFont { get; }
+    public double PreviewFontSize { get; }
     public string Time { get; private set; } = "";
     public string Timestamp { get; private set; } = "";
 
@@ -99,10 +102,10 @@ public sealed partial class ClipRow : INotifyPropertyChanged
                   <TextBlock Text="{Binding Time}" Style="{StaticResource CsTertiaryTextStyle}" ToolTipService.ToolTip="{Binding Timestamp}"/>
                 </StackPanel>
               </Grid>
-              <Grid ColumnSpacing="6" Visibility="{Binding PreviewVisibility}">
+              <Grid Visibility="{Binding PreviewVisibility}">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                <FontIcon Glyph="{Binding KindGlyph}" FontSize="14" Margin="0,3,0,0" VerticalAlignment="Top" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="{Binding KindGlyphVisibility}"/>
-                <TextBlock Grid.Column="1" Text="{Binding Preview}" FontFamily="{Binding PreviewFont}" Style="{StaticResource CsBodyTextStyle}" MaxLines="2" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"/>
+                <FontIcon Glyph="{Binding KindGlyph}" FontSize="14" Margin="0,3,6,0" VerticalAlignment="Top" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="{Binding KindGlyphVisibility}"/>
+                <TextBlock Grid.Column="1" Text="{Binding Preview}" FontFamily="{Binding PreviewFont}" FontSize="{Binding PreviewFontSize}" Style="{StaticResource CsBodyTextStyle}" MaxLines="2" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"/>
               </Grid>
               <Border Visibility="{Binding ThumbnailVisibility}" Style="{StaticResource CsMediaFrameStyle}" HorizontalAlignment="Left" Margin="0,4,0,2">
                 <Image Source="{Binding ThumbnailSource}" MaxHeight="96" MaxWidth="260" Stretch="Uniform"/>

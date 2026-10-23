@@ -264,7 +264,7 @@ internal static class Glyph
     public const string Document = "\uE8A5", Folder = "\uE8B7", Video = "\uE714", Audio = "\uE8D6", Archive = "\uF012";
     public const string Code = "\uE943", App = "\uE71D", Program = "\uE756", ChevronLeft = "\uE76B", ChevronRight = "\uE76C";
     public const string Keyboard = "\uE765", Capture = "\uE722", Shield = "\uEA18", Storage = "\uEDA2", Theme = "\uE790";
-    public const string Startup = "\uE7E8", Tray = "\uE921", OpenFolder = "\uE838", Warning = "\uE7BA", Lock = "\uE72E";
+    public const string Startup = "\uE7E8", Tray = "\uE8A7", OpenFolder = "\uE838", Warning = "\uE7BA", Lock = "\uE72E";
     public const string Calendar = "\uE787", Size = "\uE740";
 
     public static string ForFile(Core.FileCategory category) => category switch

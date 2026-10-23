@@ -10,7 +10,7 @@ internal static class SettingsLayout
 {
     public static StackPanel Page(string title, string description)
     {
-        var page = new StackPanel { Spacing = Ui.Space1 + 2, MaxWidth = 820, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var page = new StackPanel { Spacing = Ui.Space1 + 2 };
         var heading = Ui.Text("CsPageTitleTextStyle", title);
         AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level1);
         page.Children.Add(heading);
@@ -59,10 +59,15 @@ internal static class SettingsLayout
 
     public static ToggleSwitch Toggle(bool value) => new() { IsOn = value, OnContent = "On", OffContent = "Off", MinWidth = 0 };
 
-    public static NumberBox Number(double value, double min, double max, string unit)
+    public static NumberBox Number(double value, double min, double max)
+        => new() { Value = value, Minimum = min, Maximum = max, Width = 148, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline, ValidationMode = NumberBoxValidationMode.InvalidInputOverwritten };
+
+    // A number box followed by its unit, e.g. "[ 30 ] days".
+    public static StackPanel WithUnit(NumberBox box, string unit)
     {
-        var box = new NumberBox { Value = value, Minimum = min, Maximum = max, Width = 152, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline, ValidationMode = NumberBoxValidationMode.InvalidInputOverwritten };
-        box.Description = unit;
-        return box;
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Ui.Space2 };
+        var label = new TextBlock { Text = unit, Style = Ui.Style("CsCaptionTextStyle"), VerticalAlignment = VerticalAlignment.Center, MinWidth = 32 };
+        row.Children.Add(box); row.Children.Add(label);
+        return row;
     }
 }

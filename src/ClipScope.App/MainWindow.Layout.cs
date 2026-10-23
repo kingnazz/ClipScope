@@ -29,6 +29,7 @@ internal sealed partial class MainWindow
     private readonly ColumnDefinition _historyColumn = new() { Width = new GridLength(4, GridUnitType.Star), MinWidth = 300, MaxWidth = 520 };
     private readonly Grid _body = new();
     private ClipDetailView _detail = null!;
+    private Grid _recordingPanel = null!;
     private StackPanel _searchKeys = null!, _emptyState = null!, _emptyKeys = null!, _hints = null!, _recordingText = null!, _pager = null!;
     private TextBlock _status = null!, _emptyTitle = null!, _emptyBody = null!, _recordingTitle = null!, _recordingCaption = null!, _pageLabel = null!;
     private FontIcon _emptyGlyph = null!;
@@ -133,7 +134,7 @@ internal sealed partial class MainWindow
         };
         sidebar.Children.Add(_filters);
 
-        var recording = new Grid { ColumnSpacing = Ui.Space3, Padding = new Thickness(Ui.Space3, Ui.Space3, Ui.Space1, 0), Margin = new Thickness(Ui.Space1, 0, Ui.Space1, 0) };
+        var recording = _recordingPanel = new Grid { ColumnSpacing = Ui.Space3, Padding = new Thickness(Ui.Space3, Ui.Space3, Ui.Space1, 0), Margin = new Thickness(Ui.Space1, 0, Ui.Space1, 0) };
         recording.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         recording.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         recording.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
@@ -141,7 +142,7 @@ internal sealed partial class MainWindow
         _recordingDot.Margin = new Thickness(Ui.Space1, 0, 0, 0);
         _recordingText = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         _recordingTitle = new TextBlock { Style = Ui.Style("CsBodyStrongTextStyle"), FontSize = 13 };
-        _recordingCaption = Ui.Text("CsTertiaryTextStyle", "Stored locally on this PC");
+        _recordingCaption = Ui.Text("CsTertiaryTextStyle", "Stored on this PC");
         _recordingText.Children.Add(_recordingTitle); _recordingText.Children.Add(_recordingCaption);
         _pause = Ui.SubtleIconButton(Glyph.Pause, "Pause recording", "Pause recording", 14);
         _pause.Click += async (_, _) => await TogglePauseAsync();
@@ -255,6 +256,11 @@ internal sealed partial class MainWindow
         foreach (var label in _filterLabels) label.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         // Compact: the pause/resume button alone carries the state (its glyph and tooltip).
         _recordingText.Visibility = _recordingDot.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        _recordingPanel.Padding = compact ? new Thickness(0, Ui.Space2, 0, 0) : new Thickness(Ui.Space3, Ui.Space3, Ui.Space1, 0);
+        _recordingPanel.Margin = compact ? new Thickness(0) : new Thickness(Ui.Space1, 0, Ui.Space1, 0);
+        _recordingPanel.ColumnSpacing = compact ? 0 : Ui.Space3;
+        Grid.SetColumn(_pause, compact ? 0 : 2); Grid.SetColumnSpan(_pause, compact ? 3 : 1);
+        _pause.HorizontalAlignment = compact ? HorizontalAlignment.Center : HorizontalAlignment.Left;
         _historyColumn.MinWidth = compact ? 280 : 300;
     }
 
@@ -299,7 +305,7 @@ internal sealed partial class MainWindow
         var recording = _settings.CaptureEnabled;
         _recordingDot.Style = Ui.Style(recording ? "CsRecordingDotStyle" : "CsPausedDotStyle");
         _recordingTitle.Text = recording ? "Recording" : "Paused";
-        _recordingCaption.Text = recording ? "Stored locally on this PC" : "New copies are not saved";
+        _recordingCaption.Text = recording ? "Stored on this PC" : "New copies aren't saved";
         _pause.Content = Ui.Icon(recording ? Glyph.Pause : Glyph.Play, 14);
         var action = recording ? "Pause recording" : "Resume recording";
         AutomationProperties.SetName(_pause, action); ToolTipService.SetToolTip(_pause, action);

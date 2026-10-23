@@ -26,7 +26,7 @@ internal sealed partial class MainWindow
             _settingsView = BuildSettings();
             Grid.SetRow(_settingsView, 2); _root.Children.Add(_settingsView);
             _body.Visibility = Visibility.Collapsed;
-            _searchHost.Visibility = Visibility.Collapsed;
+            _searchHost.Visibility = _settingsButton.Visibility = Visibility.Collapsed;
             _titleBar.IsBackButtonVisible = true;
             _titleBar.Subtitle = "Settings";
         }
@@ -38,7 +38,7 @@ internal sealed partial class MainWindow
         if (_settingsView is not null) _root.Children.Remove(_settingsView);
         _settingsView = null;
         _body.Visibility = Visibility.Visible;
-        _searchHost.Visibility = Visibility.Visible;
+        _searchHost.Visibility = _settingsButton.Visibility = Visibility.Visible;
         _titleBar.IsBackButtonVisible = false;
         _titleBar.Subtitle = "";
         ApplyAppearance(); // discards an unsaved theme preview
@@ -72,14 +72,16 @@ internal sealed partial class MainWindow
         // Capture
         var capture = SettingsLayout.Toggle(original.CaptureEnabled);
         var screenshots = SettingsLayout.Toggle(original.ScreenshotsEnabled);
-        var maxText = SettingsLayout.Number(original.MaxTextBytes / 1024, 1, 16384, "KiB per format");
-        var maxImage = SettingsLayout.Number(original.MaxImageBytes / 1048576, 1, 128, "MiB");
+        var maxText = SettingsLayout.Number(original.MaxTextBytes / 1024, 1, 16384);
+        var maxImage = SettingsLayout.Number(original.MaxImageBytes / 1048576, 1, 128);
+        AutomationProperties.SetName(maxText, "Largest text to save, in KiB per format");
+        AutomationProperties.SetName(maxImage, "Largest image to save, in MiB");
         var captureGroup = SettingsLayout.Page("Capture", "What ClipScope saves when you copy.");
         captureGroup.Children.Add(SettingsLayout.Card(Glyph.Brand, "Record clipboard history", "When off, nothing you copy is saved. You can also pause from the sidebar or the tray icon.", capture));
         captureGroup.Children.Add(SettingsLayout.Card(Glyph.Snapshot, "Source snapshots", "Captures only the window you copied from, so each clip shows where it came from. Snapshots can include anything else visible in that window. Off by default.", screenshots));
         captureGroup.Children.Add(SettingsLayout.Group("Limits"));
-        captureGroup.Children.Add(SettingsLayout.Card(Glyph.Text, "Largest text to save", "Bigger text representations are skipped.", maxText));
-        captureGroup.Children.Add(SettingsLayout.Card(Glyph.Image, "Largest image to save", "Bigger clipboard images are skipped.", maxImage));
+        captureGroup.Children.Add(SettingsLayout.Card(Glyph.Text, "Largest text to save", "Per clipboard format. Bigger text representations are skipped.", SettingsLayout.WithUnit(maxText, "KiB")));
+        captureGroup.Children.Add(SettingsLayout.Card(Glyph.Image, "Largest image to save", "Bigger clipboard images are skipped.", SettingsLayout.WithUnit(maxImage, "MiB")));
 
         // Privacy
         var exclusions = new TextBox
@@ -100,8 +102,10 @@ internal sealed partial class MainWindow
         privacy.Children.Add(Guidance("Adding an exclusion does not remove history that was already saved. Delete those clips individually or clear history in Storage."));
 
         // Storage
-        var days = SettingsLayout.Number(original.RetentionDays, 1, 3650, "days");
-        var budget = SettingsLayout.Number(original.MaxMediaBytes / 1048576, 16, 102400, "MiB");
+        var days = SettingsLayout.Number(original.RetentionDays, 1, 3650);
+        var budget = SettingsLayout.Number(original.MaxMediaBytes / 1048576, 16, 102400);
+        AutomationProperties.SetName(days, "Keep history for, in days");
+        AutomationProperties.SetName(budget, "Image and snapshot budget, in MiB");
         var location = Ui.Text("CsCaptionTextStyle", _paths.Root); location.IsTextSelectionEnabled = true;
         location.TextTrimming = TextTrimming.CharacterEllipsis; ToolTipService.SetToolTip(location, _paths.Root);
         var open = new Button { Content = Ui.IconLabel(Glyph.OpenFolder, "Open folder") };
@@ -114,6 +118,8 @@ internal sealed partial class MainWindow
         var clear = new Button { Content = Ui.IconLabel(Glyph.Delete, "Clear history…") };
         AutomationProperties.SetName(clear, "Clear unpinned history");
         var clearStatus = Ui.Text("CsCaptionTextStyle", wrap: true);
+        clearStatus.Visibility = Visibility.Collapsed;
+        clearStatus.RegisterPropertyChangedCallback(TextBlock.TextProperty, (_, _) => clearStatus.Visibility = clearStatus.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed);
         var confirm = new Button { Content = "Delete unpinned clips", Style = Ui.Style("AccentButtonStyle") };
         var confirmPanel = new StackPanel { Spacing = Ui.Space3, MaxWidth = 300 };
         confirmPanel.Children.Add(new TextBlock { Text = "Delete all unpinned clips?", Style = Ui.Style("CsBodyStrongTextStyle") });
@@ -137,8 +143,8 @@ internal sealed partial class MainWindow
             finally { clear.IsEnabled = true; }
         };
         var storage = SettingsLayout.Page("Storage", "How long history is kept and where it lives. Everything stays on this PC.");
-        storage.Children.Add(SettingsLayout.Card(Glyph.Calendar, "Keep history for", "Older clips are removed automatically. Pinned clips are always kept.", days));
-        storage.Children.Add(SettingsLayout.Card(Glyph.Storage, "Image and snapshot budget", "When exceeded, the oldest unpinned media is removed first. Pinned media can exceed the budget.", budget));
+        storage.Children.Add(SettingsLayout.Card(Glyph.Calendar, "Keep history for", "Older clips are removed automatically. Pinned clips are always kept.", SettingsLayout.WithUnit(days, "days")));
+        storage.Children.Add(SettingsLayout.Card(Glyph.Storage, "Image and snapshot budget", "When exceeded, the oldest unpinned media is removed first. Pinned media can exceed the budget.", SettingsLayout.WithUnit(budget, "MiB")));
         storage.Children.Add(SettingsLayout.Card(Glyph.OpenFolder, "Storage location", "Database, settings, images and snapshots. Not encrypted; protected by your Windows account and disk encryption.", open, location));
         storage.Children.Add(SettingsLayout.Group("Danger zone"));
         storage.Children.Add(SettingsLayout.Card(Glyph.Warning, "Clear unpinned history", "Permanently deletes every clip that is not pinned, with its images and snapshots.", clear, clearStatus, "CsCautionIconStyle"));
@@ -185,8 +191,10 @@ internal sealed partial class MainWindow
         Grid.SetRow(about, 1); navHost.Children.Add(about);
         view.Children.Add(navHost);
 
-        var presenter = new ContentPresenter { ContentTransitions = [new EntranceThemeTransition { FromVerticalOffset = 12 }] };
+        // Left-aligned like Windows Settings, with a comfortable maximum line length.
+        var presenter = new ContentPresenter { ContentTransitions = [new EntranceThemeTransition { FromVerticalOffset = 12 }], HorizontalAlignment = HorizontalAlignment.Left };
         var scroller = new ScrollViewer { Content = presenter, Padding = new Thickness(Ui.Space6, Ui.Space5, Ui.Space6, Ui.Space6), HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        scroller.SizeChanged += (_, args) => presenter.Width = Math.Max(0, Math.Min(880, args.NewSize.Width - 2 * Ui.Space6));
         nav.SelectionChanged += (_, _) =>
         {
             if (nav.SelectedIndex < 0) return;

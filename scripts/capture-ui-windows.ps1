@@ -25,6 +25,7 @@ public static class ClipScopeUiNative {
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int command);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT rect, int size);
@@ -133,11 +134,15 @@ $filesDirectory = New-Item -ItemType Directory -Force -Path (Join-Path $env:TEMP
 $files = @('Q3 board report.pdf', 'Budget FY26.xlsx', 'Meeting notes.txt') | ForEach-Object {
     $path = Join-Path $filesDirectory.FullName $_; Set-Content -Path $path -Value 'ClipScope UI capture'; $path }
 
+# Copies from the source window. It must really be foreground, as in normal use,
+# so ClipScope attributes the window title and can take a source snapshot.
 function Copy-From([string] $Title, [scriptblock] $SetClipboard) {
     $source.Text = $Title
+    $source.WindowState = 'Normal'
     $source.Activate(); $source.BringToFront()
     [void][ClipScopeUiNative]::SetForegroundWindow($source.Handle)
     Start-Sleep -Milliseconds 400
+    if ([ClipScopeUiNative]::GetForegroundWindow() -ne $source.Handle) { Write-Output "::warning title=ClipScope UI capture::Source window was not foreground for '$Title'" }
     & $SetClipboard
     Start-Sleep -Milliseconds 2200
 }
@@ -147,6 +152,8 @@ try {
     Start-ClipScope 2
     Resize-ClipScope 1360 860
     Save-Window '01-dark-empty'
+    [void][ClipScopeUiNative]::ShowWindow($script:hwnd, 6)
+    Start-Sleep -Milliseconds 500
 
     Copy-From 'Licensing review - Notepad' { [System.Windows.Forms.Clipboard]::SetText("Release checklist`r`n1. Freeze the branch`r`n2. Run the Windows smoke test`r`n3. Publish notes") }
     Copy-From 'Q3 planning - Whiteboard' {
@@ -166,9 +173,10 @@ try {
     }
     Copy-From 'Administrator: Windows PowerShell' { [System.Windows.Forms.Clipboard]::SetText('Get-MgUser -All | Where-Object { $_.AccountEnabled } | Select-Object DisplayName, UserPrincipalName') }
     Copy-From 'Microsoft 365 admin center - Licenses' { [System.Windows.Forms.Clipboard]::SetText('Microsoft 365 Business Premium includes Defender for Business, Intune and Entra ID P1. Renewal is due on November 30; confirm seat counts with finance first.') }
+    # Open ClipScope the way a user does, from the source app with the global shortcut.
+    [System.Windows.Forms.SendKeys]::SendWait('^+v')
+    Wait-Condition { [ClipScopeUiNative]::GetForegroundWindow() -eq $script:hwnd } 'ClipScope opened by the global shortcut'
     $source.WindowState = 'Minimized'
-
-    [void][ClipScopeUiNative]::SetForegroundWindow($script:hwnd)
     Start-Sleep -Milliseconds 800
     Save-Window '02-dark-history-text-snapshot'
     Select-Row 'Image from'

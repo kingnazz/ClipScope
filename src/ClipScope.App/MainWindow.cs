@@ -95,8 +95,10 @@ internal sealed partial class MainWindow : Window
             var query = new SearchRequest(text, _filter, PageSize, _offset);
             var results = await Task.Run(() => _repository.SearchAsync(query, ct), ct);
             ct.ThrowIfCancellationRequested();
-            var selectedId = selectFirst ? null : (_history.SelectedItem as ClipRow)?.Clip.Id ?? _selected?.Id;
             var selectedIndex = _history.SelectedIndex;
+            // While the newest clip is selected in unfiltered history, keep following the newest.
+            var followNewest = selectedIndex == 0 && text.Length == 0 && _offset == 0;
+            var selectedId = selectFirst || followNewest ? null : (_history.SelectedItem as ClipRow)?.Clip.Id ?? _selected?.Id;
             var now = DateTimeOffset.Now;
             _rows.Clear(); foreach (var result in results) _rows.Add(new(result, Absolute(result.IconPath), Absolute(result.ThumbnailPath), now));
             _resultsQuery = text;
