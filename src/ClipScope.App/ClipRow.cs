@@ -10,11 +10,13 @@ namespace ClipScope.App;
 // Presentation model for one history row. Everything the template needs is
 // precomputed so the list stays cheap to scroll.
 [WinRT.GeneratedBindableCustomProperty]
-public sealed partial class ClipRow : INotifyPropertyChanged
+public sealed partial class ClipRow : INotifyPropertyChanged, IDisposable
 {
     private static readonly FontFamily MonoFamily = new(Ui.MonoFont), TextFamily = new(Ui.TextFont);
     private ImageSource? _icon, _thumbnail;
     private readonly string? _iconPath, _thumbnailPath;
+    private CancellationTokenSource? _imageCancellation;
+    private bool _iconLoaded, _thumbnailFailed, _disposed;
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public ClipRow(ClipSummary clip, string? icon, string? thumbnail, DateTimeOffset now)
@@ -46,15 +48,15 @@ public sealed partial class ClipRow : INotifyPropertyChanged
     public string Timestamp { get; private set; } = "";
 
     // Images decode lazily, only for realized rows, at the size they are displayed.
-    public ImageSource? IconSource => _icon ??= Load(_iconPath, 40);
-    public ImageSource? ThumbnailSource => _thumbnail ??= ShowsThumbnail ? Load(_thumbnailPath, 480) : null;
+    public ImageSource? IconSource => _icon ??= Load(_iconPath, 40, icon: true);
+    public ImageSource? ThumbnailSource => _thumbnail ??= ShowsThumbnail ? Load(_thumbnailPath, 480, icon: false) : null;
 
     private bool ShowsThumbnail => Clip.Kind == ClipKind.Image && _thumbnailPath is not null;
-    public Visibility FallbackIconVisibility => Visible(_iconPath is null);
+    public Visibility FallbackIconVisibility => Visible(!_iconLoaded);
     public Visibility ContextVisibility => Visible(Context.Length > 0);
     public Visibility PreviewVisibility => Visible(Preview.Length > 0);
     public Visibility KindGlyphVisibility => Visible(KindGlyph.Length > 0 && Preview.Length > 0);
-    public Visibility ThumbnailVisibility => Visible(ShowsThumbnail);
+    public Visibility ThumbnailVisibility => Visible(ShowsThumbnail && !_thumbnailFailed);
     public Visibility PinVisibility => Visible(Clip.IsPinned);
     public Visibility SnapshotVisibility => Visible(Clip.HasContextScreenshot);
 
@@ -76,11 +78,26 @@ public sealed partial class ClipRow : INotifyPropertyChanged
     }
 
     private static Visibility Visible(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
-    private static BitmapImage? Load(string? path, int decodeWidth)
+    private BitmapImage? Load(string? path, int decodeWidth, bool icon)
     {
-        if (path is null) return null;
-        try { return new BitmapImage(new Uri(path)) { DecodePixelWidth = decodeWidth, DecodePixelType = DecodePixelType.Logical }; }
-        catch (UriFormatException) { return null; }
+        if (path is null || _disposed) return null;
+        var bitmap = new BitmapImage { DecodePixelWidth = decodeWidth, DecodePixelType = DecodePixelType.Physical };
+        _imageCancellation ??= new();
+        _ = LoadAsync();
+        return bitmap;
+        async Task LoadAsync()
+        {
+            var loaded = await StoredImage.LoadAsync(bitmap, path, _imageCancellation.Token);
+            if (_disposed) return;
+            if (icon) { _iconLoaded = loaded; PropertyChanged?.Invoke(this, new(nameof(FallbackIconVisibility))); }
+            else { _thumbnailFailed = !loaded; PropertyChanged?.Invoke(this, new(nameof(ThumbnailVisibility))); }
+        }
+    }
+    public void Dispose()
+    {
+        _disposed = true;
+        _imageCancellation?.Cancel(); _imageCancellation?.Dispose();
+        _icon = _thumbnail = null;
     }
 
     public const string Template = """

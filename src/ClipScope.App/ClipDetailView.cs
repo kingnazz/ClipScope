@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using ClipScope.App.Design;
 using ClipScope.Core;
 using Microsoft.UI.Xaml;
@@ -15,6 +14,8 @@ internal sealed class ClipDetailView
 {
     private const int MaxPreviewCharacters = 32768, MaxListedFiles = 200;
     private readonly Func<string?, string?> _resolve;
+    private CancellationTokenSource _imageCancellation = new();
+    private readonly List<(Image Image, int Width, int Height, double MaxHeight)> _images = [];
     private readonly Grid _root = new();
     private readonly Grid _header = new() { Padding = new Thickness(Ui.Space5, Ui.Space5, Ui.Space5, Ui.Space4), RowSpacing = Ui.Space4 };
     private readonly Border _iconTile = new() { Width = 44, Height = 44 };
@@ -111,6 +112,8 @@ internal sealed class ClipDetailView
 
     public void ShowEmpty(bool historyEmpty)
     {
+        ResetImages();
+        _icon.Source = null;
         _header.Visibility = _scroller.Visibility = Visibility.Collapsed;
         _content.Children.Clear();
         _placeholder.Visibility = Visibility.Visible;
@@ -122,6 +125,7 @@ internal sealed class ClipDetailView
 
     public void Show(Clip clip, ClipRow row)
     {
+        ResetImages();
         _placeholder.Visibility = Visibility.Collapsed;
         _header.Visibility = _scroller.Visibility = Visibility.Visible;
         var app = ClipPresentation.AppName(clip.Source.AppName, clip.Source.ProcessName);
@@ -176,10 +180,11 @@ internal sealed class ClipDetailView
         var panel = new StackPanel { Spacing = Ui.Space2 };
         var frame = new Border { Style = Ui.Style("CsCardStyle"), Padding = Ui.Pad(Ui.Space3), HorizontalAlignment = HorizontalAlignment.Left };
         var caption = Ui.Text("CsTertiaryTextStyle");
-        var image = LoadImage(relative, 1600, 440, out var size);
+        var image = LoadImage(relative, 1600, 440);
         if (image is null) { panel.Children.Add(Note(Glyph.Warning, "This image is no longer available on disk.")); return panel; }
         frame.Child = image;
-        caption.Text = size is { } s ? $"{s.Width:N0} × {s.Height:N0} pixels" : "Image";
+        caption.Text = "Image";
+        AutomationProperties.SetName(image, "Clipboard image preview");
         panel.Children.Add(frame); panel.Children.Add(caption);
         return panel;
     }
@@ -219,7 +224,7 @@ internal sealed class ClipDetailView
         var layout = new Grid();
         layout.RowDefinitions.Add(new() { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        var image = LoadImage(relative, 1600, 380, out _);
+        var image = LoadImage(relative, 1600, 380);
         var stage = new Grid { Padding = Ui.Pad(Ui.Space3), Background = null };
         if (image is null) stage.Children.Add(Note(Glyph.Warning, "The snapshot file is no longer available."));
         else { image.HorizontalAlignment = HorizontalAlignment.Center; AutomationProperties.SetName(image, $"Snapshot of {app}: {clip.Source.WindowTitle}"); stage.Children.Add(image); }
@@ -301,37 +306,45 @@ internal sealed class ClipDetailView
         return row;
     }
 
-    // Loads a stored PNG at no more than its natural size so small images are not blown up,
-    // and fades it in once decoded so the pane never flashes a half-drawn image.
-    private Image? LoadImage(string relative, int decodeWidth, double maxHeight, out (int Width, int Height)? size)
+    private void ResetImages()
     {
-        size = null;
-        var path = _resolve(relative);
-        if (path is null || !File.Exists(path)) return null;
-        size = PngSize(path);
-        var image = new Image { Stretch = Stretch.Uniform, MaxHeight = maxHeight, HorizontalAlignment = HorizontalAlignment.Left, Opacity = 0, OpacityTransition = new ScalarTransition { Duration = TimeSpan.FromMilliseconds(120) } };
-        if (size is { } natural)
-        {
-            var scale = Math.Max(1, _root.XamlRoot?.RasterizationScale ?? 1);
-            image.MaxWidth = natural.Width / scale;
-            image.MaxHeight = Math.Min(maxHeight, natural.Height / scale);
-        }
-        image.Source = new BitmapImage(new Uri(path)) { DecodePixelWidth = decodeWidth, DecodePixelType = DecodePixelType.Physical };
-        image.ImageOpened += (_, _) => image.Opacity = 1;
-        image.ImageFailed += (_, _) => image.Visibility = Visibility.Collapsed;
-        return image;
+        _imageCancellation.Cancel(); _imageCancellation.Dispose(); _imageCancellation = new();
+        foreach (var entry in _images) entry.Image.Source = null;
+        _images.Clear();
     }
-
-    private static (int Width, int Height)? PngSize(string path)
+    public void UpdateImageScale(double scale)
     {
-        try
+        foreach (var (image, width, height, maxHeight) in _images)
         {
-            Span<byte> header = stackalloc byte[24];
-            using var stream = File.OpenRead(path);
-            if (stream.Read(header) < 24 || header[1] != (byte)'P' || header[2] != (byte)'N' || header[3] != (byte)'G') return null;
-            var width = BinaryPrimitives.ReadInt32BigEndian(header[16..]); var height = BinaryPrimitives.ReadInt32BigEndian(header[20..]);
-            return width > 0 && height > 0 ? (width, height) : null;
+            image.MaxWidth = width / scale;
+            image.MaxHeight = Math.Min(maxHeight, height / scale);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
+    private Image? LoadImage(string relative, int decodeWidth, double maxHeight)
+    {
+        var path = _resolve(relative);
+        if (path is null) return null;
+        var image = new Image { Stretch = Stretch.Uniform, MaxHeight = maxHeight, HorizontalAlignment = HorizontalAlignment.Left,
+            Opacity = 0, OpacityTransition = new ScalarTransition { Duration = TimeSpan.FromMilliseconds(120) } };
+        var bitmap = new BitmapImage { DecodePixelWidth = decodeWidth, DecodePixelType = DecodePixelType.Physical };
+        var ct = _imageCancellation.Token;
+        // The awaited decode cannot miss an ImageOpened event from a cached URI.
+        _ = LoadAsync();
+        return image;
+        async Task LoadAsync()
+        {
+            var loaded = await StoredImage.LoadAsync(bitmap, path, ct);
+            if (ct.IsCancellationRequested) return;
+            if (!loaded)
+            {
+                image.Opacity = 1;
+                AutomationProperties.SetName(image, "Image preview unavailable; the file may have been removed.");
+                return;
+            }
+            _images.Add((image, bitmap.PixelWidth, bitmap.PixelHeight, maxHeight));
+            UpdateImageScale(Math.Max(1, _root.XamlRoot?.RasterizationScale ?? 1));
+            image.Source = bitmap;
+            image.Opacity = 1;
+        }
     }
 }
