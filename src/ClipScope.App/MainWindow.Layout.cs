@@ -36,12 +36,11 @@ internal sealed partial class MainWindow
     private Ellipse _recordingDot = null!;
     private Button _pause = null!, _newer = null!, _older = null!, _settingsButton = null!;
     private readonly List<TextBlock> _filterLabels = [];
-    private bool _compact;
+    private bool _compact, _ctrlHeld;
     private XamlRoot? _observedXamlRoot;
     private (double Scale, int Width, int Height) _displayMetrics;
 
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint hwnd);
-    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
 
     private void BuildShell()
     {
@@ -59,6 +58,12 @@ internal sealed partial class MainWindow
         Grid.SetRow(_body, 2); _root.Children.Add(_body);
         _root.SizeChanged += (_, args) => Relayout(args.NewSize.Width);
         _root.KeyDown += OnShellKeyDown;
+        // Ctrl as seen by this window: set and cleared by the key events it receives, and
+        // reset whenever activation changes, so a Ctrl released in another app (for example
+        // after the global shortcut) never reads as held here.
+        _root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, args) => { if (IsCtrlKey(args.Key)) _ctrlHeld = true; }), true);
+        _root.AddHandler(UIElement.KeyUpEvent, new KeyEventHandler((_, args) => { if (IsCtrlKey(args.Key)) _ctrlHeld = false; }), true);
+        Activated += (_, _) => _ctrlHeld = false;
         _root.ActualThemeChanged += (_, _) => UpdateCaptionButtons();
         _root.Loaded += (_, _) =>
         {
@@ -390,10 +395,10 @@ internal sealed partial class MainWindow
         _detail?.UpdateImageScale(scale);
     }
 
-    // Physical state, not the UI thread's synchronized key state: after the global shortcut
-    // the thread may never have seen Ctrl released (it was pressed in another app), and a
-    // stale "down" would turn Enter (paste) into Ctrl+Enter (copy).
-    private static bool IsCtrlDown() => (GetAsyncKeyState(0x11) & 0x8000) != 0;
+    // Neither the thread's synchronized key state (stale after the global shortcut) nor the
+    // physical state (already released when a fast Ctrl+Enter is processed) is reliable here.
+    private bool IsCtrlDown() => _ctrlHeld;
+    private static bool IsCtrlKey(VirtualKey key) => key is VirtualKey.Control or VirtualKey.LeftControl or VirtualKey.RightControl;
 
     private async void OnSearchKeyDown(object sender, KeyRoutedEventArgs args)
     {
