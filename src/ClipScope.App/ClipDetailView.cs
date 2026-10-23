@@ -180,11 +180,10 @@ internal sealed class ClipDetailView
         var panel = new StackPanel { Spacing = Ui.Space2 };
         var frame = new Border { Style = Ui.Style("CsCardStyle"), Padding = Ui.Pad(Ui.Space3), HorizontalAlignment = HorizontalAlignment.Left };
         var caption = Ui.Text("CsTertiaryTextStyle");
-        var image = LoadImage(relative, 1600, 440, size => caption.Text = $"{size.Width:N0} × {size.Height:N0} pixels");
+        var image = LoadImage(relative, 1600, 440, "Clipboard image preview", size => caption.Text = $"{size.Width:N0} × {size.Height:N0} pixels");
         if (image is null) { panel.Children.Add(Note(Glyph.Warning, "This image is no longer available on disk.")); return panel; }
         frame.Child = image;
         caption.Text = "Image";
-        AutomationProperties.SetName(image, "Clipboard image preview");
         panel.Children.Add(frame); panel.Children.Add(caption);
         return panel;
     }
@@ -224,10 +223,10 @@ internal sealed class ClipDetailView
         var layout = new Grid();
         layout.RowDefinitions.Add(new() { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        var image = LoadImage(relative, 1600, 380);
+        var image = LoadImage(relative, 1600, 380, $"Snapshot of {app}: {clip.Source.WindowTitle}");
         var stage = new Grid { Padding = Ui.Pad(Ui.Space3), Background = null };
         if (image is null) stage.Children.Add(Note(Glyph.Warning, "The snapshot file is no longer available."));
-        else { image.HorizontalAlignment = HorizontalAlignment.Center; AutomationProperties.SetName(image, $"Snapshot of {app}: {clip.Source.WindowTitle}"); stage.Children.Add(image); }
+        else { image.HorizontalAlignment = HorizontalAlignment.Center; stage.Children.Add(image); }
         layout.Children.Add(stage);
 
         var caption = new Grid { ColumnSpacing = Ui.Space3, Padding = Ui.Pad(Ui.Space4, Ui.Space3) };
@@ -320,12 +319,14 @@ internal sealed class ClipDetailView
             image.MaxHeight = Math.Min(maxHeight, height / scale);
         }
     }
-    private FrameworkElement? LoadImage(string relative, int decodeWidth, double maxHeight, Action<PngPreview>? decoded = null)
+    private FrameworkElement? LoadImage(string relative, int decodeWidth, double maxHeight, string accessibleName, Action<PngPreview>? decoded = null)
     {
         var path = _resolve(relative);
         if (path is null) return null;
         var image = new Image { Stretch = Stretch.Uniform, MaxHeight = maxHeight, HorizontalAlignment = HorizontalAlignment.Left,
             Opacity = 0, OpacityTransition = new ScalarTransition { Duration = TimeSpan.FromMilliseconds(120) } };
+        AutomationProperties.SetName(image, accessibleName);
+        AutomationProperties.SetItemStatus(image, "Preview loading");
         var host = new Grid();
         var unavailable = Note(Glyph.Warning, "Image preview unavailable; the file may have been removed or damaged.");
         unavailable.Visibility = Visibility.Collapsed;
@@ -341,6 +342,7 @@ internal sealed class ClipDetailView
             if (ct.IsCancellationRequested) return;
             if (loaded is null)
             {
+                AutomationProperties.SetItemStatus(image, "Preview unavailable");
                 image.Visibility = Visibility.Collapsed;
                 unavailable.Visibility = Visibility.Visible;
                 return;
@@ -350,6 +352,7 @@ internal sealed class ClipDetailView
             UpdateImageScale(Math.Max(1, _root.XamlRoot?.RasterizationScale ?? 1));
             image.Source = bitmap;
             image.Opacity = 1;
+            AutomationProperties.SetItemStatus(image, "Preview ready");
         }
     }
 }

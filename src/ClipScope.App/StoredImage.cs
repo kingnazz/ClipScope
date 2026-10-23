@@ -24,9 +24,8 @@ internal static class StoredImage
             using var stream = file.AsRandomAccessStream();
             await bitmap.SetSourceAsync(stream).AsTask(ct);
             ct.ThrowIfCancellationRequested();
-            return preview;
+            return bitmap.PixelWidth > 0 && bitmap.PixelHeight > 0 ? preview : null;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException
-            or OperationCanceledException or System.Runtime.InteropServices.COMException) { return null; }
+        catch (Exception e) when (e is not OutOfMemoryException) { return null; }
     }
 }

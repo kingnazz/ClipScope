@@ -29,6 +29,7 @@ public static class ClipScopeSmokeNative {
 # while another process (including ClipScope itself) has the clipboard open; that is
 # retried, never treated as success.
 function Wait-Condition([scriptblock] $Condition, [string] $Description) {
+    $script:phase = $Description
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
     do {
         [System.Windows.Forms.Application]::DoEvents()
@@ -67,6 +68,16 @@ $source.Show()
     function Find-Name([string] $Name) {
         return $script:window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
             (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty, $Name)))
+    }
+    function Invoke-Action([string] $Name) {
+        Wait-Condition {
+            $element = Find-Name $Name
+            if ($null -eq $element -or -not $element.Current.IsEnabled) { return $false }
+            try {
+                $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+                return $true
+            } catch [System.Windows.Automation.ElementNotEnabledException] { return $false }
+        } "action $Name"
     }
     function Find-Pattern([string] $Name, $Pattern) {
         $elements = $script:window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
@@ -112,6 +123,14 @@ $source.Show()
             }
         }
     } finally { $image.Dispose() }
+    Wait-Condition {
+        $images = $script:window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Image)))
+        foreach ($preview in $images) {
+            if ($preview.Current.Name -like 'Snapshot of *ClipScope CI Source*' -and $preview.Current.ItemStatus -eq 'Preview ready') { return $true }
+        }
+        return $false
+    } 'source snapshot decoded in WinUI'
     [System.Windows.Forms.Clipboard]::Clear()
     $copy = Find-Name 'Copy'
     if ($null -eq $copy) { throw 'Copy action missing.' }
@@ -151,13 +170,13 @@ $source.Show()
     Wait-Condition { $null -ne (Find-Name 'Unpin') } 'original clip still pinned'
     # Cancel must discard staged privacy edits. A failed Save must retain the
     # original shortcut and exact startup registry entry as well as the file.
-    (Find-Name 'Settings').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Invoke-Action 'Settings'
     Wait-Condition { $null -ne (Find-Name 'Settings sections') } 'settings open'
     (Find-Name 'Privacy').GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
     (Find-Pattern 'Excluded apps, one executable path or process name per line' ([System.Windows.Automation.ValuePattern]::Pattern)).SetValue('ClipScopeNeverExcludeTest')
-    (Find-Name 'Cancel').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Invoke-Action 'Cancel'
     if ([IO.File]::ReadAllText((Join-Path $dataDirectory 'settings.json')).Contains('ClipScopeNeverExcludeTest')) { throw 'Cancel persisted staged privacy edits.' }
-    (Find-Name 'Settings').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Invoke-Action 'Settings'
     Wait-Condition { $null -ne (Find-Name 'Shortcut key') } 'general settings'
     (Find-Pattern 'Shortcut key' ([System.Windows.Automation.ValuePattern]::Pattern)).SetValue('Y')
     $runKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run')
@@ -167,7 +186,7 @@ $source.Show()
     $beforeSave = [IO.File]::ReadAllText((Join-Path $dataDirectory 'settings.json'))
     $lockedSettings = [IO.File]::Open((Join-Path $dataDirectory 'settings.json'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
     try {
-        (Find-Name 'Save').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        Invoke-Action 'Save'
         Wait-Condition { $null -ne (Find-Name 'Could not save settings. Check the values, shortcut availability and storage permissions.') } 'failed settings save rollback'
     } finally { $lockedSettings.Dispose() }
     if ([IO.File]::ReadAllText((Join-Path $dataDirectory 'settings.json')) -cne $beforeSave) { throw 'Failed Save changed persisted settings.' }
@@ -179,15 +198,15 @@ $source.Show()
     [void][ClipScopeSmokeNative]::UnregisterHotKey([IntPtr]::Zero, 41)
     # Retry succeeds, then change back to the default shortcut for the paste test.
     (Find-Pattern 'Start with Windows' ([System.Windows.Automation.TogglePattern]::Pattern)).Toggle()
-    (Find-Name 'Save').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Invoke-Action 'Save'
     Wait-Condition { $null -eq (Find-Name 'Settings sections') } 'successful settings retry'
     $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
     [System.Windows.Forms.SendKeys]::SendWait('^+y')
     Wait-Condition { [ClipScopeSmokeNative]::GetForegroundWindow() -eq [IntPtr]$script:window.Current.NativeWindowHandle } 'changed global shortcut'
-    (Find-Name 'Settings').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Invoke-Action 'Settings'
     Wait-Condition { $null -ne (Find-Name 'Shortcut key') } 'settings after successful save'
     (Find-Pattern 'Shortcut key' ([System.Windows.Automation.ValuePattern]::Pattern)).SetValue('V')
-    (Find-Name 'Save').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Invoke-Action 'Save'
     Wait-Condition { $null -eq (Find-Name 'Settings sections') } 'default shortcut saved'
     $value.SetValue('192.168')
     Wait-Condition { $null -ne (Find-Name $fixture) } 'FTS matching historical text'
@@ -212,12 +231,12 @@ $source.Show()
     Wait-Condition { $null -ne (Find-Name 'ClipScope clear pinned sentinel') } 'pinned-clear fixture capture'
     [System.Windows.Forms.SendKeys]::SendWait('^+v')
     Wait-Condition { $null -ne (Find-Name 'Pin') } 'clear fixture actions'
-    (Find-Name 'Pin').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Invoke-Action 'Pin'
     Wait-Condition { $null -ne (Find-Name 'Unpin') } 'clear fixture pinned'
     $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
     [System.Windows.Forms.Clipboard]::SetText('ClipScope clear transient')
     Wait-Condition { $null -ne (Find-Name 'ClipScope clear transient') } 'unpinned-clear fixture capture'
-    (Find-Name 'Settings').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Invoke-Action 'Settings'
     Wait-Condition { $null -ne (Find-Name 'Settings sections') } 'clear settings open'
     (Find-Name 'Storage').GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
     # The page swaps in asynchronously, and the card header shares the button's name;
@@ -247,12 +266,12 @@ $source.Show()
     } 'clear confirmation'
     $script:confirmClear.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Condition { $null -ne (Find-Name 'Unpinned history cleared.') } 'clear history completion'
-    (Find-Name 'Cancel').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Invoke-Action 'Cancel'
     Wait-Condition { $null -ne (Find-Name 'ClipScope clear pinned sentinel') } 'pinned clip preserved by clear'
     if ($null -ne (Find-Name 'ClipScope clear transient') -or $null -ne (Find-Name 'ClipScope second item gamma')) { throw 'Clear retained unpinned history.' }
-    Write-Output '::notice title=ClipScope desktop smoke::PASS: launch, text capture, source-window context, screenshot PNG, clipboard restoration, pin, FTS search, global shortcut, focus/paste, deletion, media cleanup, immediate commands, settings Cancel, failed Save rollback shortcut replacement and clear preserving pinned clips'
+    Write-Output '::notice title=ClipScope desktop smoke::PASS: launch, text capture, source-window context, screenshot PNG and decoded preview, clipboard restoration, pin, FTS search, global shortcut, focus/paste, deletion, media cleanup, immediate commands, settings Cancel, failed Save rollback shortcut replacement and clear preserving pinned clips'
 } catch {
-    Write-Output ("::error title=ClipScope desktop smoke::" + $_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A'))
+    Write-Output ("::error title=ClipScope desktop smoke::" + $_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A') + " (line $($_.InvocationInfo.ScriptLineNumber), phase $script:phase)")
     $diagnostic = Join-Path $env:LOCALAPPDATA 'ClipScope/logs/diagnostic.log'
     if (Test-Path $diagnostic) {
         foreach ($line in (Get-Content $diagnostic -Tail 8)) { Write-Output ("::notice title=ClipScope diagnostic::" + $line) }
