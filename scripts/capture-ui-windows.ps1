@@ -26,6 +26,7 @@ public static class ClipScopeUiNative {
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int command);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT rect, int size);
@@ -139,6 +140,9 @@ $files = @('Q3 board report.pdf', 'Budget FY26.xlsx', 'Meeting notes.txt') | For
 function Copy-From([string] $Title, [scriptblock] $SetClipboard) {
     $source.Text = $Title
     $source.WindowState = 'Normal'
+    # Windows only lets the process that sent the last input change the foreground
+    # window; a harmless F24 press makes this script that process.
+    [ClipScopeUiNative]::keybd_event(0x87, 0, 0, [UIntPtr]::Zero); [ClipScopeUiNative]::keybd_event(0x87, 0, 2, [UIntPtr]::Zero)
     $source.Activate(); $source.BringToFront()
     [void][ClipScopeUiNative]::SetForegroundWindow($source.Handle)
     Start-Sleep -Milliseconds 400
@@ -204,6 +208,9 @@ try {
     Start-ClipScope 1
     Resize-ClipScope 1360 860
     Save-Window '12-light-history'
+    (Find-Name 'Pin').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Condition { $null -ne (Find-Name 'Unpin') } 'pinned state'
+    Save-Window '12b-light-pinned'
     Select-Row 'Image from'
     Save-Window '13-light-image'
     Select-Row 'Files from'
