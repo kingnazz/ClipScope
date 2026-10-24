@@ -92,6 +92,11 @@ internal static class Native
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern uint RegisterWindowMessage(string message);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern nint FindWindow(string cls, string? title);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] internal static extern bool Shell_NotifyIcon(uint message, ref NotifyIconData data);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern nint LoadImage(nint instance, string name, uint type, int width, int height, uint flags);
+    [DllImport("user32.dll")] internal static extern bool DestroyIcon(nint icon);
+    [DllImport("user32.dll")] internal static extern uint GetDpiForSystem();
+    [DllImport("user32.dll")] internal static extern int GetSystemMetricsForDpi(int index, uint dpi);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] internal static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
     [DllImport("user32.dll")] internal static extern nint LoadIcon(nint instance, nint resource);
     [DllImport("user32.dll")] internal static extern nint CreatePopupMenu();
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern bool AppendMenu(nint menu, uint flags, nuint id, string label);

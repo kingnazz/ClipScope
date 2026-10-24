@@ -198,7 +198,7 @@ internal sealed partial class MainWindow
         navHost.RowDefinitions.Add(new() { Height = GridLength.Auto });
         navHost.Children.Add(nav);
         var about = new StackPanel { Spacing = 2, Margin = new Thickness(Ui.Space4, 0, Ui.Space3, 0) };
-        about.Children.Add(Ui.Text("CsCaptionTextStyle", "ClipScope"));
+        about.Children.Add(Ui.Text("CsCaptionTextStyle", "ClipScope " + typeof(ClipScopeApplication).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false).OfType<System.Reflection.AssemblyInformationalVersionAttribute>().First().InformationalVersion.Split('+')[0]));
         about.Children.Add(Ui.Text("CsTertiaryTextStyle", "Local-only clipboard history. No accounts, network or telemetry.", wrap: true));
         Grid.SetRow(about, 1); navHost.Children.Add(about);
         view.Children.Add(navHost);
