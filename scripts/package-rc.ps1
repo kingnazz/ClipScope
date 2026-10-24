@@ -16,6 +16,14 @@ if ($IncludeStaleFixtureFile -and -not $FixtureVersion) { throw 'Stale-file inje
 Push-Location $root
 try {
     if (-not $SkipValidation) { & (Join-Path $PSScriptRoot 'validate.ps1') }
+    else {
+        # WinAppSDK omits its PRI-generation targets from dotnet publish for an
+        # unpackaged app. A regular Windows build must generate the merged index,
+        # including when building the lower-version installer test fixture.
+        $buildLines = @(& dotnet build src/ClipScope.App/ClipScope.App.csproj -c Release -p:Platform=x64 "-p:ClipScopeVersion=$($version.Version)" -p:RestoreLockedMode=true -warnaserror 2>&1)
+        $buildLines | Write-Output
+        if ($LASTEXITCODE -ne 0) { throw ('Resource build: ' + (($buildLines | Select-Object -Last 15) -join "`n")) }
+    }
     $output = [IO.Path]::GetFullPath((Join-Path $root $OutputDirectory))
     [void][IO.Directory]::CreateDirectory($output)
     $stage = Join-Path $output ('payload-' + $version.Version)
@@ -31,6 +39,9 @@ try {
     $publishLines | Write-Output
     if ($LASTEXITCODE -ne 0) { throw ('Self-contained publication: ' + (($publishLines | Select-Object -Last 15) -join "`n")) }
     $buildOutput = Join-Path $root 'src/ClipScope.App/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64'
+    $applicationPri = Join-Path $buildOutput 'ClipScope.App.pri'
+    if (-not (Test-Path -LiteralPath $applicationPri)) { throw 'The regular Windows Release build did not generate the application PRI.' }
+    Copy-Item -LiteralPath $applicationPri -Destination $stage
     $resourceInventory = @{}
     foreach ($location in @(@{label='build';path=$buildOutput},@{label='published';path=$stage})) {
         $resourceInventory[$location.label] = @(Get-ChildItem -LiteralPath $location.path -File -Recurse |
