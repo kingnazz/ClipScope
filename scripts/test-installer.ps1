@@ -129,6 +129,8 @@ try {
     $app = Start-Process -FilePath $exe -ArgumentList '--background' -PassThru
     Start-Sleep -Seconds 3
     if ($app.HasExited) { throw 'Upgraded profile cannot launch.' }
+    & powershell.exe -NoProfile -STA -File (Join-Path $PSScriptRoot 'verify-upgrade-windows.ps1') -TargetProcessId $app.Id -OwnershipReceipt $receipt
+    if ($LASTEXITCODE -ne 0) { throw 'Retained main history did not work in the installed UI.' }
     Stop-ClipScope
     $after = Get-ProfileSnapshot
     Assert-SameSnapshot $before $after
