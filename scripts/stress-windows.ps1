@@ -58,7 +58,7 @@ try {
     $session = [Diagnostics.Stopwatch]::StartNew()
     $interval = [TimeSpan]::FromMinutes($Minutes).TotalMilliseconds / $Operations
     for ($index = 0; $index -lt $Operations; $index++) {
-        $producer.Activate(); [void][ClipScopeRcNative]::SetForegroundWindow($producer.Handle)
+        $producer.Activate(); Set-RcForeground $producer.Handle
         Wait-Rc { [ClipScopeRcNative]::GetForegroundWindow() -eq $producer.Handle } 'synthetic foreground source'
         if ($index % 10 -eq 0) {
             $bitmap = New-Object System.Drawing.Bitmap 160,100
@@ -76,7 +76,7 @@ try {
         }
         if ($index % 100 -eq 0) {
             $watch.Restart(); Open-RcHistory $app; $warm += $watch.Elapsed.TotalMilliseconds; Close-RcHistory
-            $producer.Activate(); [void][ClipScopeRcNative]::SetForegroundWindow($producer.Handle)
+            $producer.Activate(); Set-RcForeground $producer.Handle
             $watch.Restart(); Open-RcHistory $app 'hotkey'; $hotkey += $watch.Elapsed.TotalMilliseconds; Close-RcHistory
         }
         if ($index -eq 0) {

@@ -22,7 +22,7 @@ function Find-Source([string] $Title) {
     return [IntPtr]::Zero
 }
 function Copy-RealSource([IntPtr] $Handle) {
-    [void][ClipScopeRcNative]::SetForegroundWindow($Handle)
+    Set-RcForeground $Handle
     Wait-Rc { [ClipScopeRcNative]::GetForegroundWindow() -eq $Handle } 'real source foreground'
     [System.Windows.Forms.SendKeys]::SendWait('^a')
     [System.Windows.Forms.SendKeys]::SendWait('^c')
@@ -116,7 +116,7 @@ try {
     $notepad = $null; $sourceWindow = [IntPtr]::Zero
 
     $pauseSource = New-Object System.Windows.Forms.Form
-    $pauseSource.Text='ClipScope synthetic pause source'; $pauseSource.Show()
+    $pauseSource.Text='ClipScope synthetic pause source'; $pauseSource.Show(); Set-RcForeground $pauseSource.Handle
     Invoke-RcTrayMenu $app 'Pause clipboard capture'
     Wait-Rc { (Get-Content (Join-Path $data 'settings.json') -Raw | ConvertFrom-Json).CaptureEnabled -eq $false } 'tray pause persisted'
     foreach ($restart in @($false,$true)) {
@@ -126,7 +126,7 @@ try {
             Wait-Rc { [ClipScopeRcNative]::FindWindow('ClipScope.NativeHost.v1',$null) -ne [IntPtr]::Zero } 'restart while paused'
         }
         $pausedNeedle='rcpaused'+[Guid]::NewGuid().ToString('N')
-        $pauseSource.Activate(); [void][ClipScopeRcNative]::SetForegroundWindow($pauseSource.Handle)
+        $pauseSource.Activate(); Set-RcForeground $pauseSource.Handle
         Wait-Rc { [ClipScopeRcNative]::GetForegroundWindow() -eq $pauseSource.Handle } 'pause source foreground'
         [System.Windows.Forms.Clipboard]::SetText($pausedNeedle)
         Start-Sleep -Seconds 2
@@ -136,7 +136,7 @@ try {
     Invoke-RcTrayMenu $app 'Resume clipboard capture'
     Wait-Rc { (Get-Content (Join-Path $data 'settings.json') -Raw | ConvertFrom-Json).CaptureEnabled -eq $true } 'tray resume persisted'
     $resumedNeedle='rcresumed'+[Guid]::NewGuid().ToString('N')
-    $pauseSource.Activate(); [void][ClipScopeRcNative]::SetForegroundWindow($pauseSource.Handle)
+    $pauseSource.Activate(); Set-RcForeground $pauseSource.Handle
     [System.Windows.Forms.Clipboard]::SetText($resumedNeedle)
     Wait-Rc { (Get-RcProbe $data $resumedNeedle).payloadHits -eq 1 } 'capture resumes after paused restart'
     Invoke-RcTrayMenu $app 'Settings'

@@ -9,9 +9,16 @@ Add-Type @'
 using System;
 using System.Runtime.InteropServices;
 public static class ClipScopeRcNative {
+    [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string cls, string title);
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(uint processId);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
+    [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hwnd, int index);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern uint GetGuiResources(IntPtr process, uint kind);
     [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
@@ -32,6 +39,26 @@ function Wait-Rc([scriptblock] $Condition, [string] $Description, [int] $Seconds
         if ([DateTime]::UtcNow -gt $deadline) { throw "Timed out: $Description" }
         Start-Sleep -Milliseconds 50
     } while ($true)
+}
+function Set-RcForeground([IntPtr] $Handle) {
+    if ([ClipScopeRcNative]::GetForegroundWindow() -eq $Handle) { return }
+    [void][ClipScopeRcNative]::SetForegroundWindow($Handle)
+    if ([ClipScopeRcNative]::GetForegroundWindow() -eq $Handle) { return }
+    # A real click supplies the input permission that sequential hosted test
+    # processes may lack. Only explicitly selected synthetic source windows are
+    # passed here. Restore the source's original topmost state immediately.
+    $rect = New-Object ClipScopeRcNative+Rect
+    if (-not [ClipScopeRcNative]::GetWindowRect($Handle,[ref]$rect)) { throw 'Source window bounds are unavailable.' }
+    $wasTopmost = ([ClipScopeRcNative]::GetWindowLong($Handle,-20) -band 8) -ne 0
+    [void][ClipScopeRcNative]::SetWindowPos($Handle,[IntPtr](-1),0,0,0,0,0x13)
+    try {
+        [void][ClipScopeRcNative]::SetCursorPos($rect.Left+60,$rect.Top+12)
+        [ClipScopeRcNative]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+        [ClipScopeRcNative]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+    } finally {
+        if (-not $wasTopmost) { [void][ClipScopeRcNative]::SetWindowPos($Handle,[IntPtr](-2),0,0,0,0,0x13) }
+    }
+    Wait-Rc { [ClipScopeRcNative]::GetForegroundWindow() -eq $Handle } 'source window activated by input'
 }
 function Get-RcWindow($Process) {
     $roots = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children,
@@ -73,6 +100,7 @@ function Open-RcHistory($Process, [string] $Method = 'tray') {
         [ClipScopeRcNative]::keybd_event(0x10,0,2,[UIntPtr]::Zero)
         [ClipScopeRcNative]::keybd_event(0x11,0,2,[UIntPtr]::Zero)
     } else {
+        [void][ClipScopeRcNative]::AllowSetForegroundWindow([uint32]$Process.Id)
         $hostWindow = [ClipScopeRcNative]::FindWindow('ClipScope.NativeHost.v1', $null)
         if ($hostWindow -eq [IntPtr]::Zero) { throw 'Native listener is missing.' }
         [void][ClipScopeRcNative]::PostMessage($hostWindow, 0x8003, [IntPtr]::Zero, [IntPtr]0x203)
@@ -90,6 +118,7 @@ function Invoke-RcTrayMenu($Process, [string] $Action) {
     # Drive the real Win32 popup through the notification callback. Physical
     # hit-testing of the shell icon remains a separate Windows 11 acceptance item.
     $hostWindow = [ClipScopeRcNative]::FindWindow('ClipScope.NativeHost.v1',$null)
+    [void][ClipScopeRcNative]::AllowSetForegroundWindow([uint32]$Process.Id)
     [void][ClipScopeRcNative]::PostMessage($hostWindow,0x8003,[IntPtr]::Zero,[IntPtr]0x205)
     $script:trayProvider = $null
     Wait-Rc {
