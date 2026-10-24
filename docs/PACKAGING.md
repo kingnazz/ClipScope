@@ -87,6 +87,10 @@ runtime files, EXE version and a self-contained runtimeconfig. It retains the
 runtime licenses/notices in the payload. Windows supplies its supported UCRT.
 No VC redistributable bootstrapper or runtime installer is run on the user's PC.
 No .NET trimming or single-file extraction is used for WinUI's native resources.
+The script carries the regular Windows build's merged `ClipScope.App.pri` into
+the publish payload explicitly: this SDK's unpackaged publish path omits the
+PRI-generation targets. Framework PRI files alone are insufficient. An installed
+smoke with the source tree unavailable verifies the complete deployment.
 
 `artifacts/rc` contains the versioned setup EXE, `SHA256SUMS.txt`, a per-file
 `build-manifest.json` and CI evidence. Existing staging directories are refused;

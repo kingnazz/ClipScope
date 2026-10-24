@@ -97,11 +97,12 @@ try {
     Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $baseline.Path 'source')
     Push-Location (Join-Path $baseline.Path 'source')
     try {
-        & dotnet publish src/ClipScope.App/ClipScope.App.csproj -c Release -r win-x64 --self-contained true -p:Platform=x64 -warnaserror -o (Join-Path $baseline.Path 'publish')
-        if ($LASTEXITCODE -ne 0) { throw 'The actual main baseline did not publish.' }
+        & dotnet build src/ClipScope.App/ClipScope.App.csproj -c Release -p:Platform=x64 -warnaserror
+        if ($LASTEXITCODE -ne 0) { throw 'The actual main baseline did not build.' }
     } finally { Pop-Location }
+    $baselineExe = Join-Path $baseline.Path 'source/src/ClipScope.App/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64/ClipScope.App.exe'
     $receipt = Join-Path $evidence 'profile-ownership.json'
-    & powershell.exe -NoProfile -STA -File (Join-Path $PSScriptRoot 'smoke-windows.ps1') -ExecutablePath (Join-Path $baseline.Path 'publish/ClipScope.App.exe') -RequireDesktop -RetainProfile -OwnershipReceipt $receipt
+    & powershell.exe -NoProfile -STA -File (Join-Path $PSScriptRoot 'smoke-windows.ps1') -ExecutablePath $baselineExe -RequireDesktop -RetainProfile -OwnershipReceipt $receipt
     if ($LASTEXITCODE -ne 0) { throw 'Actual main could not create the upgrade history.' }
     # Explicit handoff from the child we launched, never adoption of pre-existing data.
     $profile = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
@@ -120,7 +121,7 @@ try {
     # synthetic fixture, built with the same packaging code and an owned stale file.
     $predecessor = '0.0.0-rc.1'
     & (Join-Path $PSScriptRoot 'package-rc.ps1') -OutputDirectory 'artifacts/predecessor-fixture' -FixtureVersion $predecessor -SkipValidation -IncludeStaleFixtureFile
-    New-ItemProperty -Path $runKey -Name ClipScope -Value ('"' + (Join-Path $baseline.Path 'publish/ClipScope.App.exe') + '" --background') -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $runKey -Name ClipScope -Value ('"' + $baselineExe + '" --background') -PropertyType String -Force | Out-Null
     Invoke-Setup (Join-Path $root "artifacts/predecessor-fixture/ClipScope-$predecessor-win-x64-setup.exe")
     if (-not (Test-Path (Join-Path $install 'rc-stale-fixture.txt'))) { throw 'Predecessor did not install its stale-file fixture.' }
     Invoke-Setup $installer
