@@ -12,7 +12,7 @@ $exe = Join-Path $install 'ClipScope.App.exe'
 if ((Test-Path $install) -or (Test-Path $data) -or (Get-Process 'ClipScope.App' -ErrorAction SilentlyContinue)) { throw 'A fresh hosted desktop is required.' }
 $profile = New-OwnedTestDirectory $data
 $fixtures = New-OwnedTestDirectory (Join-Path $root 'artifacts/compat-fixtures')
-$app = $null; $sourceWindow = [IntPtr]::Zero; $notepad = $null; $pauseSource = $null
+$app = $null; $sourceWindow = [IntPtr]::Zero; $notepad = $null; $pauseSource = $null; $consoleChild = $null
 $results = New-Object 'System.Collections.Generic.List[object]'
 function Find-Source([string] $Title) {
     $windows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
@@ -145,6 +145,66 @@ try {
     $pauseSource.Close(); $pauseSource.Dispose(); $pauseSource=$null
     $results.Add(@{ app='Tray menu and pause'; result='PASS real popup Pause/Resume/Settings via notification callback; paused restart does not capture, resume captures' })
 
+    # Real visible PowerShell console, using its supported Set-Clipboard command.
+    # Handshake after foreground verification avoids attributing a startup copy
+    # to whichever application happened to be active before the console opened.
+    $consoleScript = Join-Path $fixtures.Path 'console-copy.ps1'
+    @'
+param([string] $Needle, [string] $ReadyPath, [string] $VersionPath)
+$Host.UI.RawUI.WindowTitle = $Needle
+$PSVersionTable.PSVersion.ToString() | Set-Content -LiteralPath $VersionPath -Encoding UTF8
+$text = "$Needle Unicode 日本語 🧪`r`nsynthetic console output"
+Write-Output $text
+$deadline = [DateTime]::UtcNow.AddSeconds(45)
+while (-not (Test-Path -LiteralPath $ReadyPath)) {
+    if ([DateTime]::UtcNow -gt $deadline) { throw 'Console source handshake timed out.' }
+    Start-Sleep -Milliseconds 50
+}
+Set-Clipboard -Value $text
+'@ | Set-Content -LiteralPath $consoleScript -Encoding UTF8
+    $needle = 'rcconsole' + [Guid]::NewGuid().ToString('N')
+    $ready = Join-Path $fixtures.Path 'console-ready'
+    $consoleVersion = Join-Path $fixtures.Path 'console-version.txt'
+    $consoleChild = Start-Process powershell.exe -ArgumentList @('-NoLogo','-NoProfile','-NoExit','-File',('"'+$consoleScript+'"'),'-Needle',$needle,'-ReadyPath',('"'+$ready+'"'),'-VersionPath',('"'+$consoleVersion+'"')) -PassThru
+    Wait-Rc { $script:sourceWindow = Find-Source $needle; $script:sourceWindow -ne [IntPtr]::Zero } 'PowerShell console window'
+    Set-RcForeground $sourceWindow
+    [IO.File]::WriteAllText($ready,'ready')
+    $consoleText = "$needle Unicode 日本語 🧪`r`nsynthetic console output"
+    Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $consoleText } 'PowerShell Set-Clipboard native Unicode'
+    $record = Record-Capture 'PowerShell console (Set-Clipboard)' $needle ((Get-Content -LiteralPath $consoleVersion -Raw).Trim())
+    [System.Windows.Forms.Clipboard]::Clear(); Restore-FromHistory $needle
+    Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $consoleText } 'PowerShell exact text restoration'
+    Close-RcHistory
+    [void][ClipScopeRcNative]::PostMessage($sourceWindow,0x10,[IntPtr]::Zero,[IntPtr]::Zero)
+    if (-not $consoleChild.WaitForExit(5000)) { $consoleChild.Kill(); $consoleChild.WaitForExit() }
+    $consoleChild.Dispose(); $consoleChild=$null; $sourceWindow=[IntPtr]::Zero
+
+    $paint = Join-Path $env:WINDIR 'System32/mspaint.exe'
+    if (Test-Path -LiteralPath $paint) {
+        $needle = 'rcpaint' + [Guid]::NewGuid().ToString('N')
+        $imageFile = Join-Path $fixtures.Path ($needle + '.png')
+        $bitmap = New-Object Drawing.Bitmap 160,100
+        $graphics = [Drawing.Graphics]::FromImage($bitmap)
+        try { $graphics.Clear([Drawing.Color]::FromArgb(255,17,90,160)); $bitmap.Save($imageFile,[Drawing.Imaging.ImageFormat]::Png) }
+        finally { $graphics.Dispose(); $bitmap.Dispose() }
+        $paintChild = Start-Process $paint -ArgumentList ('"'+$imageFile+'"') -PassThru
+        Wait-Rc { $script:sourceWindow=Find-Source $needle; $script:sourceWindow -ne [IntPtr]::Zero } 'Paint PNG fixture window'
+        Copy-RealSource $sourceWindow
+        Wait-Rc { [System.Windows.Forms.Clipboard]::ContainsImage() } 'Paint native image copy'
+        $record = Record-Capture 'Paint' $needle ([Diagnostics.FileVersionInfo]::GetVersionInfo($paint).FileVersion)
+        if ($record.latest.kind -ne 'Image') { throw 'Paint image was not stored as an image.' }
+        [System.Windows.Forms.Clipboard]::Clear(); Restore-FromHistory $needle
+        Wait-Rc { [System.Windows.Forms.Clipboard]::ContainsImage() } 'Paint native image restoration'
+        $restored = [System.Windows.Forms.Clipboard]::GetImage()
+        try {
+            if ($restored.Width -ne 160 -or $restored.Height -ne 100 -or $restored.GetPixel(80,50).ToArgb() -ne [Drawing.Color]::FromArgb(255,17,90,160).ToArgb()) { throw 'Paint roundtrip changed dimensions or sampled pixel.' }
+        } finally { $restored.Dispose() }
+        Close-RcHistory
+        [void][ClipScopeRcNative]::PostMessage($sourceWindow,0x10,[IntPtr]::Zero,[IntPtr]::Zero)
+        if (-not $paintChild.HasExited) { [void]$paintChild.WaitForExit(5000) }
+        $sourceWindow=[IntPtr]::Zero
+    } else { $results.Add(@{ app='Paint'; result='NOT TESTED: executable unavailable on this server image' }) }
+
     foreach ($browser in @(
         @{ name='Edge'; path=(Join-Path ${env:ProgramFiles(x86)} 'Microsoft/Edge/Application/msedge.exe') },
         @{ name='Chrome'; path=(Join-Path $env:ProgramFiles 'Google/Chrome/Application/chrome.exe') })) {
@@ -192,7 +252,7 @@ try {
     Wait-Rc { (Get-Content (Join-Path $data 'logs/diagnostic.log') -Raw).Contains('tray.recovered') } 'tray recovery after actual Explorer restart' 30
     Open-RcHistory $app 'hotkey'; Close-RcHistory
     $results.Add(@{ app='Explorer restart'; result='PASS actual shell restart, tray recovery log, global hotkey and search focus' })
-    $results.Add(@{ app='Snipping Tool, Paint, Windows Terminal, PowerShell console, Office, GPU/protected windows'; result='NOT TESTED by this harness; physical matrix remains open' })
+    $results.Add(@{ app='Snipping Tool, Windows Terminal, Office, GPU/protected windows'; result='NOT TESTED by this harness; physical matrix remains open' })
     $results | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $evidence 'compatibility.json') -Encoding UTF8
     Write-Output '::notice title=RC real apps::PASS: Notepad Unicode/multiline/URL copy and paste; Edge and Chrome when installed CF_HTML/text restoration; Explorer file list restoration; Notepad privacy persisted over restart; actual Explorer restart tray recovery and hotkey'
     foreach ($result in $results) { Write-Output ('::notice title=RC application evidence::' + ($result | ConvertTo-Json -Compress -Depth 8)) }
@@ -208,6 +268,7 @@ try {
     if ($app -and -not $app.HasExited) { Stop-RcApp $exe $app }
     if ($notepad) { Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force }
     if ($pauseSource) { $pauseSource.Close(); $pauseSource.Dispose() }
+    if ($consoleChild -and -not $consoleChild.HasExited) { $consoleChild.Kill(); $consoleChild.WaitForExit() }
     if ($sourceWindow -ne [IntPtr]::Zero) { [void][ClipScopeRcNative]::PostMessage($sourceWindow,0x10,[IntPtr]::Zero,[IntPtr]::Zero) }
     [System.Windows.Forms.Clipboard]::Clear()
     Remove-OwnedTestDirectory $profile
