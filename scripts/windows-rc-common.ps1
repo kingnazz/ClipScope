@@ -46,6 +46,7 @@ function Get-RcPattern([string] $Name, $Pattern) {
     $elements = $script:window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
         (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty, $Name)))
     foreach ($element in $elements) {
+        if ($Pattern -eq [System.Windows.Automation.InvokePattern]::Pattern -and -not $element.Current.IsEnabled) { continue }
         $provider = $null
         if ($element.TryGetCurrentPattern($Pattern, [ref]$provider)) { return $provider }
     }
@@ -55,6 +56,13 @@ function Invoke-RcAction([string] $Name) {
     $script:provider = $null
     Wait-Rc { $script:provider = Get-RcPattern $Name ([System.Windows.Automation.InvokePattern]::Pattern); $null -ne $script:provider } $Name
     $script:provider.Invoke()
+    if ($Name -eq 'Save' -or $Name -eq 'Cancel') {
+        Wait-Rc {
+            $sections = $script:window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty,'Settings sections')))
+            $null -eq $sections
+        } 'Settings transaction finished'
+    }
 }
 function Open-RcHistory($Process, [string] $Method = 'tray') {
     if ($Method -eq 'hotkey') {

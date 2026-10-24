@@ -30,6 +30,14 @@ try {
     $publishLines = @(& dotnet @publish 2>&1)
     $publishLines | Write-Output
     if ($LASTEXITCODE -ne 0) { throw ('Self-contained publication: ' + (($publishLines | Select-Object -Last 15) -join "`n")) }
+    $buildOutput = Join-Path $root 'src/ClipScope.App/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64'
+    $resourceInventory = @{}
+    foreach ($location in @(@{label='build';path=$buildOutput},@{label='published';path=$stage})) {
+        $resourceInventory[$location.label] = @(Get-ChildItem -LiteralPath $location.path -File -Recurse |
+            Where-Object { $_.Extension -in @('.pri','.xbf','.xaml') } |
+            ForEach-Object { @{path=[IO.Path]::GetRelativePath($location.path,$_.FullName); bytes=$_.Length; sha256=(Get-FileHash -LiteralPath $_.FullName).Hash} })
+    }
+    Write-Output ('::notice title=RC resource inventory::' + ($resourceInventory | ConvertTo-Json -Compress -Depth 5))
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
     $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
     if (-not $vs) { throw 'The licensed Visual C++ release redistributable directory is required on the build machine.' }

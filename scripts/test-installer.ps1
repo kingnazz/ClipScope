@@ -68,10 +68,19 @@ try {
     $sourceTree = Join-Path $root 'src'
     $movedSource = Join-Path $root 'src-unavailable-for-installed-smoke'
     Move-Item -LiteralPath $sourceTree -Destination $movedSource
+    $installedSmokeExit = 1
     try {
         & powershell.exe -NoProfile -STA -File (Join-Path $PSScriptRoot 'smoke-windows.ps1') -ExecutablePath $exe -RequireDesktop
-        if ($LASTEXITCODE -ne 0) { throw 'Installed functional smoke failed.' }
+        $installedSmokeExit = $LASTEXITCODE
     } finally { Move-Item -LiteralPath $movedSource -Destination $sourceTree }
+    if ($installedSmokeExit -ne 0) {
+        # Diagnostic comparison only: this cannot turn a failed installed gate
+        # into success. Both child runs retain the normal owned-profile checks.
+        Write-Output '::notice title=RC deployment diagnosis::Comparing the post-publish build output after installed launch failed.'
+        & powershell.exe -NoProfile -STA -File (Join-Path $PSScriptRoot 'smoke-windows.ps1') -ExecutablePath (Join-Path $root 'src/ClipScope.App/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64/ClipScope.App.exe') -RequireDesktop
+        Write-Output "::notice title=RC deployment diagnosis::Post-publish build-output smoke exit: $LASTEXITCODE"
+        throw 'Installed functional smoke failed.'
+    }
     Write-Output '::notice title=RC installer::PASS: fresh per-user install, payload hashes, metadata, Start Menu, installed functional smoke independent of staging'
     Invoke-Setup (Join-Path $install 'unins000.exe')
     if (Test-Path $data) { throw 'Smoke did not release its owned test profile.' }

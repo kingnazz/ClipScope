@@ -108,7 +108,7 @@ try {
         Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $secret } 'excluded Notepad copied'
         Start-Sleep -Seconds 2
         $after = Get-RcProbe $data $secret
-        if ($after.payloadHits -ne 0 -or $after.metadataHits -ne 0 -or $after.ftsHits -ne 0 -or $after.mediaFiles -ne $before.mediaFiles) { throw 'Excluded application leaked persisted content, metadata, FTS or media.' }
+        if ($after.clips -ne $before.clips -or $after.payloadHits -ne 0 -or $after.metadataHits -ne 0 -or $after.ftsHits -ne 0 -or $after.mediaFiles -ne $before.mediaFiles) { throw 'Excluded application leaked persisted content, metadata, FTS or media.' }
     }
     $results.Add(@{ app = 'Notepad exclusion'; result = 'PASS content/metadata/FTS/media absence before and after restart' })
     # Only processes launched after the explicit no-Notepad check belong to this test.
