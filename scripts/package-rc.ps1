@@ -20,12 +20,16 @@ try {
     [void][IO.Directory]::CreateDirectory($output)
     $stage = Join-Path $output ('payload-' + $version.Version)
     if (Test-Path -LiteralPath $stage) { throw 'Use a new output directory; packaging never adopts or deletes an existing staging tree.' }
-    $publish = @('publish', 'src/ClipScope.App/ClipScope.App.csproj', '-c', 'Release', '-r', 'win-x64',
+    # The app declares win-x64. A global -r would also rewrite the portable
+    # reference projects' lockfiles and invalidate subsequent locked restores.
+    $publish = @('publish', 'src/ClipScope.App/ClipScope.App.csproj', '-c', 'Release',
         '--self-contained', 'true', '-p:Platform=x64', '-p:WindowsAppSDKSelfContained=true',
+        '-p:RestoreLockedMode=true',
         '-p:PublishSingleFile=false', '-p:PublishTrimmed=false', "-p:ClipScopeVersion=$($version.Version)",
         '-p:ContinuousIntegrationBuild=true', '-warnaserror', '-o', $stage)
-    & dotnet @publish
-    if ($LASTEXITCODE -ne 0) { throw 'Self-contained Release publication failed.' }
+    $publishLines = @(& dotnet @publish 2>&1)
+    $publishLines | Write-Output
+    if ($LASTEXITCODE -ne 0) { throw ('Self-contained publication: ' + (($publishLines | Select-Object -Last 15) -join "`n")) }
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
     $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
     if (-not $vs) { throw 'The licensed Visual C++ release redistributable directory is required on the build machine.' }
