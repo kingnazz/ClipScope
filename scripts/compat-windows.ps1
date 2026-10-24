@@ -65,7 +65,7 @@ try {
     [System.Windows.Forms.Clipboard]::Clear(); Restore-FromHistory $needle
     Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $text } 'Notepad exact Unicode restoration'
     Close-RcHistory
-    [void][ClipScopeRcNative]::SetForegroundWindow($sourceWindow)
+    Set-RcForeground $sourceWindow
     [System.Windows.Forms.SendKeys]::SendWait('^a^v^a^c')
     Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $text } 'Notepad real paste roundtrip'
 
@@ -101,7 +101,7 @@ try {
         $before = Get-RcProbe $data $secret
         # Paste into Notepad, clear clipboard, then make Notepad itself own Ctrl+C.
         [System.Windows.Forms.Clipboard]::SetText($secret)
-        [void][ClipScopeRcNative]::SetForegroundWindow($sourceWindow)
+        Set-RcForeground $sourceWindow
         [System.Windows.Forms.SendKeys]::SendWait('^a^v')
         [System.Windows.Forms.Clipboard]::Clear()
         Copy-RealSource $sourceWindow
@@ -175,7 +175,7 @@ try {
     $file = Join-Path $folder 'rcfile-synthetic.txt'; [IO.File]::WriteAllText($file,'synthetic file payload')
     [void](Start-Process explorer.exe -ArgumentList ('/select,"' + $file + '"') -PassThru)
     Wait-Rc { $script:sourceWindow = Find-Source $folderName; $script:sourceWindow -ne [IntPtr]::Zero } 'Explorer fixture window'
-    [void][ClipScopeRcNative]::SetForegroundWindow($sourceWindow)
+    Set-RcForeground $sourceWindow
     [System.Windows.Forms.SendKeys]::SendWait('^c')
     Wait-Rc { [System.Windows.Forms.Clipboard]::ContainsFileDropList() } 'Explorer CF_HDROP copy'
     $record = Record-Capture 'File Explorer' 'rcfile' ([Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $env:WINDIR 'explorer.exe')).FileVersion)

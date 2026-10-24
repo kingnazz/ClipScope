@@ -91,7 +91,7 @@ function Invoke-RcAction([string] $Name) {
         } 'Settings transaction finished'
     }
 }
-function Open-RcHistory($Process, [string] $Method = 'tray') {
+function Open-RcHistory($Process, [string] $Method = 'hotkey') {
     if ($Method -eq 'hotkey') {
         [ClipScopeRcNative]::keybd_event(0x11,0,0,[UIntPtr]::Zero)
         [ClipScopeRcNative]::keybd_event(0x10,0,0,[UIntPtr]::Zero)

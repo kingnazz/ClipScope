@@ -75,7 +75,7 @@ try {
             }
         }
         if ($index % 100 -eq 0) {
-            $watch.Restart(); Open-RcHistory $app; $warm += $watch.Elapsed.TotalMilliseconds; Close-RcHistory
+            $watch.Restart(); Open-RcHistory $app 'tray'; $warm += $watch.Elapsed.TotalMilliseconds; Close-RcHistory
             $producer.Activate(); Set-RcForeground $producer.Handle
             $watch.Restart(); Open-RcHistory $app 'hotkey'; $hotkey += $watch.Elapsed.TotalMilliseconds; Close-RcHistory
         }
