@@ -72,7 +72,7 @@ try {
     foreach ($notice in @('LICENSE.TXT','THIRD-PARTY-NOTICES.TXT')) {
         Copy-Item -LiteralPath (Join-Path $runtimePackage $notice) -Destination (Join-Path $licenses ".NET-$notice")
     }
-    $required = @('ClipScope.App.exe','ClipScope.App.dll','ClipScope.App.deps.json','ClipScope.App.runtimeconfig.json',
+    $required = @('ClipScope.App.exe','ClipScope.App.dll','ClipScope.App.deps.json','ClipScope.App.runtimeconfig.json','ClipScope.App.pri',
         'hostfxr.dll','hostpolicy.dll','coreclr.dll','System.Private.CoreLib.dll','Microsoft.UI.Xaml.dll',
         'Microsoft.WindowsAppRuntime.dll','e_sqlite3.dll','vcruntime140.dll','vcruntime140_1.dll','msvcp140.dll','Assets/ClipScope.ico')
     foreach ($file in $required) { if (-not (Test-Path -LiteralPath (Join-Path $stage $file))) { throw "Required deployed file missing: $file" } }
