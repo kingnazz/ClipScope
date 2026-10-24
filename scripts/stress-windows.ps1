@@ -81,6 +81,12 @@ try {
         }
         if ($index -eq 0) {
             Open-RcHistory $app
+            (Get-RcPattern 'Text' ([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select()
+            Wait-Rc {
+                $oldPreview = $script:window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                    (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty, '160 × 100 pixels')))
+                $null -eq $oldPreview
+            } 'previous image preview cleared before timing'
             $imagesFilter = Get-RcPattern 'Images' ([System.Windows.Automation.SelectionItemPattern]::Pattern)
             $watch.Restart(); $imagesFilter.Select()
             Wait-Rc {
@@ -124,7 +130,8 @@ try {
         # The diagnostic CLI can leave its console reader alive after exporting.
         # Stop only the observer after the application has exited; require the
         # full-duration exported series below, not merely a non-empty file.
-        $counter.Kill(); $counter.WaitForExit()
+        & taskkill.exe /PID $counter.Id /T /F | Out-Null
+        $counter.WaitForExit()
         Write-Output '::notice title=RC diagnostic observer::Counter CLI remained alive after app exit; observer stopped after export.'
     }
     if (-not (Test-Path $counterFile) -or (Get-Item $counterFile).Length -lt 100) { throw 'No managed heap evidence was recorded.' }
@@ -155,7 +162,7 @@ try {
     throw
 } finally {
     if ($app -and -not $app.HasExited) { Stop-RcApp $exe $app }
-    if ($counter -and -not $counter.HasExited) { $counter.Kill(); $counter.WaitForExit() }
+    if ($counter -and -not $counter.HasExited) { & taskkill.exe /PID $counter.Id /T /F | Out-Null; $counter.WaitForExit() }
     if ($producer) { $producer.Close(); $producer.Dispose() }
     [System.Windows.Forms.Clipboard]::Clear()
     Remove-OwnedTestDirectory $profile
