@@ -24,6 +24,8 @@ public static class ClipScopeSmokeNative {
     [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT rect, int size);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
     [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
     [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
     [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
@@ -101,6 +103,18 @@ $source.Show()
     # still be attributed to this visible source window.
     $source.Activate(); $source.BringToFront()
     [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
+    # Sequential smoke processes may lack SetForegroundWindow permission after
+    # the previous app exits. Click the owned topmost source like a real user,
+    # then verify the actual foreground HWND before copying anything.
+    $point = $source.PointToScreen((New-Object System.Drawing.Point 40,60))
+    [void][ClipScopeSmokeNative]::SetCursorPos($point.X,$point.Y)
+    [ClipScopeSmokeNative]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+    [ClipScopeSmokeNative]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    while ([ClipScopeSmokeNative]::GetForegroundWindow() -ne $source.Handle -and [DateTime]::UtcNow -lt $deadline) {
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 50
+    }
     if ([ClipScopeSmokeNative]::GetForegroundWindow() -ne $source.Handle) {
         if ($RequireDesktop) { throw 'Installed acceptance requires real foreground activation.' }
         Write-Output '::notice title=ClipScope desktop smoke::SKIPPED: runner denies foreground activation; launch verified only'
