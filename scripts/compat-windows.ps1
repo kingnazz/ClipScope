@@ -62,7 +62,7 @@ try {
     Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $text } 'Notepad native Unicode copy'
     $record = Record-Capture 'Notepad' $needle ([Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $env:WINDIR 'System32/notepad.exe')).FileVersion)
     if ($record.latest.source -ne 'notepad') { throw 'Notepad source attribution is wrong.' }
-    [System.Windows.Forms.Clipboard]::Clear(); Restore-FromHistory $needle
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }; Restore-FromHistory $needle
     Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $text } 'Notepad exact Unicode restoration'
     Close-RcHistory
     Set-RcForeground $sourceWindow
@@ -101,9 +101,9 @@ try {
         $before = Get-RcProbe $data $secret
         # Paste into Notepad, clear clipboard, then make Notepad itself own Ctrl+C.
         Set-RcForeground $sourceWindow
-        [System.Windows.Forms.Clipboard]::SetText($secret)
+        Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::SetText($secret) }
         [System.Windows.Forms.SendKeys]::SendWait('^a^v')
-        [System.Windows.Forms.Clipboard]::Clear()
+        Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
         Copy-RealSource $sourceWindow
         Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $secret } 'excluded Notepad copied'
         Start-Sleep -Seconds 2
@@ -128,7 +128,7 @@ try {
         $pausedNeedle='rcpaused'+[Guid]::NewGuid().ToString('N')
         $pauseSource.Activate(); Set-RcForeground $pauseSource.Handle
         Wait-Rc { [ClipScopeRcNative]::GetForegroundWindow() -eq $pauseSource.Handle } 'pause source foreground'
-        [System.Windows.Forms.Clipboard]::SetText($pausedNeedle)
+        Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::SetText($pausedNeedle) }
         Start-Sleep -Seconds 2
         $record=Get-RcProbe $data $pausedNeedle
         if ($record.payloadHits -ne 0 -or $record.ftsHits -ne 0) { throw 'Paused capture persisted content, including after restart.' }
@@ -137,7 +137,7 @@ try {
     Wait-Rc { (Get-Content (Join-Path $data 'settings.json') -Raw | ConvertFrom-Json).CaptureEnabled -eq $true } 'tray resume persisted'
     $resumedNeedle='rcresumed'+[Guid]::NewGuid().ToString('N')
     $pauseSource.Activate(); Set-RcForeground $pauseSource.Handle
-    [System.Windows.Forms.Clipboard]::SetText($resumedNeedle)
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::SetText($resumedNeedle) }
     Wait-Rc { (Get-RcProbe $data $resumedNeedle).payloadHits -eq 1 } 'capture resumes after paused restart'
     Invoke-RcTrayMenu $app 'Settings'
     Wait-Rc { $script:window=Get-RcWindow $app; $script:window -and (Get-RcPattern 'Shortcut key' ([System.Windows.Automation.ValuePattern]::Pattern)) } 'tray Settings opened'
@@ -181,7 +181,7 @@ Set-Clipboard -Value $text
     $hostVersion = if ($consoleHost.terminal) { [Diagnostics.FileVersionInfo]::GetVersionInfo($consoleHost.path).FileVersion } else { (Get-Content -LiteralPath $consoleVersion -Raw).Trim() }
     $record = Record-Capture $consoleHost.name $needle $hostVersion
     if ($consoleHost.terminal -and $record.latest.source -ne 'WindowsTerminal') { throw 'Windows Terminal source attribution is wrong.' }
-    [System.Windows.Forms.Clipboard]::Clear(); Restore-FromHistory $needle
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }; Restore-FromHistory $needle
     Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $consoleText } 'PowerShell exact text restoration'
     Close-RcHistory
     [void][ClipScopeRcNative]::PostMessage($sourceWindow,0x10,[IntPtr]::Zero,[IntPtr]::Zero)
@@ -203,9 +203,9 @@ Set-Clipboard -Value $text
         Wait-Rc { [System.Windows.Forms.Clipboard]::ContainsImage() } 'Paint native image copy'
         $record = Record-Capture 'Paint' $needle ([Diagnostics.FileVersionInfo]::GetVersionInfo($paint).FileVersion)
         if ($record.latest.kind -ne 'Image') { throw 'Paint image was not stored as an image.' }
-        [System.Windows.Forms.Clipboard]::Clear(); Restore-FromHistory $needle
+        Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }; Restore-FromHistory $needle
         Wait-Rc { [System.Windows.Forms.Clipboard]::ContainsImage() } 'Paint native image restoration'
-        $restored = [System.Windows.Forms.Clipboard]::GetImage()
+        $restored = Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::GetImage() }
         try {
             if ($restored.Width -ne 160 -or $restored.Height -ne 100 -or $restored.GetPixel(80,50).ToArgb() -ne [Drawing.Color]::FromArgb(255,17,90,160).ToArgb()) { throw 'Paint roundtrip changed dimensions or sampled pixel.' }
         } finally { $restored.Dispose() }
@@ -227,11 +227,11 @@ Set-Clipboard -Value $text
         Wait-Rc { $script:sourceWindow = Find-Source $needle; $script:sourceWindow -ne [IntPtr]::Zero } ($browser.name + ' real browser window') 40
         Copy-RealSource $sourceWindow
         Wait-Rc { [System.Windows.Forms.Clipboard]::ContainsData('HTML Format') -and [System.Windows.Forms.Clipboard]::GetText().Contains($needle) } ($browser.name + ' native HTML copy')
-        $copied = [System.Windows.Forms.Clipboard]::GetText()
-        $htmlCopied = [System.Windows.Forms.Clipboard]::GetData('HTML Format')
+        $copied = Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::GetText() }
+        $htmlCopied = Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::GetData('HTML Format') }
         $record = Record-Capture $browser.name $needle ([Diagnostics.FileVersionInfo]::GetVersionInfo($browser.path).FileVersion)
         if (-not $record.latest.hasHtml) { throw ($browser.name + ' HTML payload missing from storage.') }
-        [System.Windows.Forms.Clipboard]::Clear(); Restore-FromHistory $needle
+        Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }; Restore-FromHistory $needle
         Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $copied -and [System.Windows.Forms.Clipboard]::GetData('HTML Format') -eq $htmlCopied } ($browser.name + ' text and CF_HTML restoration')
         Close-RcHistory
         [void][ClipScopeRcNative]::PostMessage($sourceWindow,0x10,[IntPtr]::Zero,[IntPtr]::Zero)
@@ -250,7 +250,7 @@ Set-Clipboard -Value $text
     Wait-Rc { [System.Windows.Forms.Clipboard]::ContainsFileDropList() } 'Explorer CF_HDROP copy'
     $record = Record-Capture 'File Explorer' 'rcfile' ([Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $env:WINDIR 'explorer.exe')).FileVersion)
     if ($record.latest.kind -ne 'Files' -or $record.latest.fileCount -ne 1) { throw 'Explorer file list was not stored.' }
-    [System.Windows.Forms.Clipboard]::Clear(); Restore-FromHistory 'rcfile'
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }; Restore-FromHistory 'rcfile'
     Wait-Rc { [System.Windows.Forms.Clipboard]::ContainsFileDropList() -and [System.Windows.Forms.Clipboard]::GetFileDropList()[0] -eq $file } 'Explorer exact file restoration'
     Close-RcHistory
     [void][ClipScopeRcNative]::PostMessage($sourceWindow,0x10,[IntPtr]::Zero,[IntPtr]::Zero)
@@ -280,7 +280,7 @@ Set-Clipboard -Value $text
     if ($pauseSource) { $pauseSource.Close(); $pauseSource.Dispose() }
     if ($consoleChild -and -not $consoleChild.HasExited) { $consoleChild.Kill(); $consoleChild.WaitForExit() }
     if ($sourceWindow -ne [IntPtr]::Zero) { [void][ClipScopeRcNative]::PostMessage($sourceWindow,0x10,[IntPtr]::Zero,[IntPtr]::Zero) }
-    [System.Windows.Forms.Clipboard]::Clear()
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
     Remove-OwnedTestDirectory $profile
     Remove-OwnedTestDirectory $fixtures
 }

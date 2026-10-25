@@ -63,12 +63,12 @@ try {
         if ($index % 10 -eq 0) {
             $bitmap = New-Object System.Drawing.Bitmap 160,100
             $graphics = [Drawing.Graphics]::FromImage($bitmap)
-            try { $graphics.Clear([Drawing.Color]::FromArgb(255,($index % 255),80,160)); [System.Windows.Forms.Clipboard]::SetImage($bitmap) }
+            try { $graphics.Clear([Drawing.Color]::FromArgb(255,($index % 255),80,160)); Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::SetImage($bitmap) } }
             finally { $graphics.Dispose(); $bitmap.Dispose() }
         } else {
             $needle = 'endurance' + $index.ToString('D6')
             $watch.Restart()
-            [System.Windows.Forms.Clipboard]::SetText("$needle Unicode 日本語 🧪`r`nsynthetic multiline")
+            Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::SetText("$needle Unicode 日本語 🧪`r`nsynthetic multiline") }
             if ($index % 100 -eq 1) {
                 Wait-Rc { (Get-RcProbe $data $needle).payloadHits -eq 1 } 'hidden capture persisted'
                 $captureLatency += $watch.Elapsed.TotalMilliseconds
@@ -95,9 +95,9 @@ try {
                 $null -ne $decoded
             } 'clipboard image decoded in detail pane'
             $imageSelectionMs = $watch.Elapsed.TotalMilliseconds
-            [System.Windows.Forms.Clipboard]::Clear(); Invoke-RcAction 'Copy'
+            Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }; Invoke-RcAction 'Copy'
             Wait-Rc { [System.Windows.Forms.Clipboard]::ContainsImage() } 'native image restored from history'
-            $restored = [System.Windows.Forms.Clipboard]::GetImage()
+            $restored = Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::GetImage() }
             try {
                 if ($restored.Width -ne 160 -or $restored.Height -ne 100 -or $restored.GetPixel(80,50).ToArgb() -ne [Drawing.Color]::FromArgb(255,0,80,160).ToArgb()) { throw 'Restored image dimensions or pixel differ.' }
             } finally { $restored.Dispose() }
@@ -168,6 +168,6 @@ try {
     if ($app -and -not $app.HasExited) { Stop-RcApp $exe $app }
     if ($counter -and -not $counter.HasExited) { & taskkill.exe /PID $counter.Id /T /F | Out-Null; $counter.WaitForExit() }
     if ($producer) { $producer.Close(); $producer.Dispose() }
-    [System.Windows.Forms.Clipboard]::Clear()
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
     Remove-OwnedTestDirectory $profile
 }

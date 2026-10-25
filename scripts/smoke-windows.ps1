@@ -9,6 +9,7 @@ if (-not [Environment]::UserInteractive) {
     exit 0
 }
 . (Join-Path $PSScriptRoot 'windows-test-profile.ps1')
+. (Join-Path $PSScriptRoot 'windows-test-clipboard.ps1')
 Assert-IsolatedDesktopRunner
 if ($RetainProfile -and -not $OwnershipReceipt) { throw 'Retaining synthetic data requires an explicit ownership receipt path.' }
 $dataDirectory = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ClipScope'
@@ -121,7 +122,7 @@ $source.Show()
         exit 0
     }
     $fixture = 'ClipScope smoke 192.168.1.15 cafe'
-    [System.Windows.Forms.Clipboard]::SetText($fixture)
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::SetText($fixture) }
     Wait-Condition { $null -ne (Find-Name $fixture) } 'captured text in WinUI history'
     Wait-Condition {
         $elements = $script:window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
@@ -155,7 +156,7 @@ $source.Show()
         }
         return $false
     } 'source snapshot decoded in WinUI'
-    [System.Windows.Forms.Clipboard]::Clear()
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
     $copy = Find-Name 'Copy'
     if ($null -eq $copy) { throw 'Copy action missing.' }
     $copy.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -170,15 +171,15 @@ $source.Show()
     $value.SetValue('no-matching-clip-unique-query')
     Wait-Condition { $null -eq (Find-Name $fixture) } 'search excluding unmatched content'
     # A nonmatching pending query must not copy the previous selection.
-    [System.Windows.Forms.Clipboard]::Clear()
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
     $search.SetFocus()
     [System.Windows.Forms.SendKeys]::SendWait('^{ENTER}')
     Start-Sleep -Milliseconds 400
-    if ([System.Windows.Forms.Clipboard]::ContainsText()) { throw 'A stale search result was copied.' }
+    if (Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::ContainsText() }) { throw 'A stale search result was copied.' }
     # Copy a second clip, then issue commands without waiting for search debounce.
     $value.SetValue('')
     $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
-    [System.Windows.Forms.Clipboard]::SetText('ClipScope second item gamma')
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::SetText('ClipScope second item gamma') }
     Wait-Condition { $null -ne (Find-Name 'ClipScope second item gamma') } 'second captured clip'
     [System.Windows.Forms.SendKeys]::SendWait('^+v')
     Wait-Condition { [ClipScopeSmokeNative]::GetForegroundWindow() -eq [IntPtr]$script:window.Current.NativeWindowHandle } 'activation for immediate commands'
@@ -193,7 +194,7 @@ $source.Show()
     if ($destination.Text.Length -ne 0) { throw 'Ctrl+Enter pasted instead of copying.' }
     # Ctrl held in the source app across activation must still mean Copy, even
     # though the WinUI window never received that Ctrl key-down.
-    [System.Windows.Forms.Clipboard]::Clear()
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
     $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
     try {
         [ClipScopeSmokeNative]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero)
@@ -255,7 +256,11 @@ $source.Show()
     $source.Activate(); $destination.Focus()
     [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
     [System.Windows.Forms.SendKeys]::SendWait('^+v')
-    Wait-Condition { [ClipScopeSmokeNative]::GetForegroundWindow() -eq [IntPtr]$script:window.Current.NativeWindowHandle } 'global shortcut opening history'
+    Wait-Condition {
+        $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+        [ClipScopeSmokeNative]::GetForegroundWindow() -eq [IntPtr]$script:window.Current.NativeWindowHandle -and
+            $focused -and $focused.Current.Name -eq 'Search clipboard history'
+    } 'global shortcut opening history with search focused'
     # Enter in the search box must resolve current results before paste.
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
     Wait-Condition { $destination.Text -eq $fixture } 'focus handoff and synthetic paste into the source application'
@@ -269,7 +274,7 @@ $source.Show()
     # Exercise the real clear-history confirmation, retaining a pinned clip.
     $value.SetValue('')
     $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
-    [System.Windows.Forms.Clipboard]::SetText('ClipScope clear pinned sentinel')
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::SetText('ClipScope clear pinned sentinel') }
     Wait-Condition { $null -ne (Find-Name 'ClipScope clear pinned sentinel') } 'pinned-clear fixture capture'
     # Text persistence precedes optional screenshot capture. Opening history here
     # changes the foreground HWND and correctly cancels that capture for privacy.
@@ -290,7 +295,7 @@ $source.Show()
     Invoke-Action 'Pin'
     Wait-Condition { $null -ne (Find-Name 'Unpin') } 'clear fixture pinned'
     $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
-    [System.Windows.Forms.Clipboard]::SetText('ClipScope clear transient')
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::SetText('ClipScope clear transient') }
     Wait-Condition { $null -ne (Find-Name 'ClipScope clear transient') } 'unpinned-clear fixture capture'
     Invoke-Action 'Settings'
     Wait-Condition { $null -ne (Find-Name 'Settings sections') } 'clear settings open'
@@ -341,7 +346,7 @@ $source.Show()
     }
     if ($source) { $source.Close(); $source.Dispose() }
     if ($script:app) { $script:app.Dispose() }
-    [System.Windows.Forms.Clipboard]::Clear()
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
     if ($RetainProfile -and $passed) { $profile | ConvertTo-Json | Set-Content -LiteralPath $OwnershipReceipt -Encoding UTF8 }
     else { Remove-OwnedTestDirectory $profile }
 }

@@ -22,11 +22,11 @@ try {
         }
         return $false
     } 'retained main context PNG decoded in installed UI'
-    [System.Windows.Forms.Clipboard]::Clear()
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
     Invoke-RcAction 'Copy'
     Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq 'ClipScope clear pinned sentinel' } 'retained main clip restored exactly'
     Write-Output '::notice title=RC upgrade UI::PASS: retained main pin, FTS result, context PNG decode and exact clipboard restoration through installed RC'
 } catch {
     Write-Output ('::error title=RC upgrade UI::' + $_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A') + " in $script:phase")
     throw
-} finally { [System.Windows.Forms.Clipboard]::Clear(); $app.Dispose() }
+} finally { Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }; $app.Dispose() }

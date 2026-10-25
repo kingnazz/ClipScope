@@ -1,5 +1,6 @@
 # UI automation helpers for isolated synthetic RC tests, not product code.
 . (Join-Path $PSScriptRoot 'windows-test-profile.ps1')
+. (Join-Path $PSScriptRoot 'windows-test-clipboard.ps1')
 Assert-IsolatedDesktopRunner
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -38,6 +39,8 @@ function Wait-Rc([scriptblock] $Condition, [string] $Description, [int] $Seconds
         [System.Windows.Forms.Application]::DoEvents()
         try { if (& $Condition) { return } }
         catch [System.Windows.Automation.ElementNotAvailableException] { }
+        catch [System.Runtime.InteropServices.ExternalException] { }
+        catch [System.Management.Automation.MethodInvocationException] { if ($_.Exception.InnerException -isnot [System.Runtime.InteropServices.ExternalException]) { throw } }
         if ([DateTime]::UtcNow -gt $deadline) { throw "Timed out: $Description" }
         Start-Sleep -Milliseconds 50
     } while ($true)
