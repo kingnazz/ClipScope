@@ -100,8 +100,8 @@ try {
         $secret = 'rcexcluded' + [Guid]::NewGuid().ToString('N')
         $before = Get-RcProbe $data $secret
         # Paste into Notepad, clear clipboard, then make Notepad itself own Ctrl+C.
-        [System.Windows.Forms.Clipboard]::SetText($secret)
         Set-RcForeground $sourceWindow
+        [System.Windows.Forms.Clipboard]::SetText($secret)
         [System.Windows.Forms.SendKeys]::SendWait('^a^v')
         [System.Windows.Forms.Clipboard]::Clear()
         Copy-RealSource $sourceWindow
@@ -162,22 +162,32 @@ while (-not (Test-Path -LiteralPath $ReadyPath)) {
 }
 Set-Clipboard -Value $text
 '@ | Set-Content -LiteralPath $consoleScript -Encoding UTF8
+    $consoleHosts = @(@{ name='PowerShell console (Set-Clipboard)'; path='powershell.exe'; terminal=$false })
+    $terminal = Get-Command wt.exe -ErrorAction SilentlyContinue
+    if ($terminal) { $consoleHosts += @{ name='Windows Terminal (PowerShell Set-Clipboard)'; path=$terminal.Source; terminal=$true } }
+    else { $results.Add(@{ app='Windows Terminal'; result='NOT TESTED: wt.exe unavailable on this server image' }) }
+    foreach ($consoleHost in $consoleHosts) {
     $needle = 'rcconsole' + [Guid]::NewGuid().ToString('N')
-    $ready = Join-Path $fixtures.Path 'console-ready'
-    $consoleVersion = Join-Path $fixtures.Path 'console-version.txt'
-    $consoleChild = Start-Process powershell.exe -ArgumentList @('-NoLogo','-NoProfile','-NoExit','-File',('"'+$consoleScript+'"'),'-Needle',$needle,'-ReadyPath',('"'+$ready+'"'),'-VersionPath',('"'+$consoleVersion+'"')) -PassThru
-    Wait-Rc { $script:sourceWindow = Find-Source $needle; $script:sourceWindow -ne [IntPtr]::Zero } 'PowerShell console window'
+    $ready = Join-Path $fixtures.Path ($needle + '-ready')
+    $consoleVersion = Join-Path $fixtures.Path ($needle + '-version.txt')
+    $consoleArguments = @('-NoLogo','-NoProfile','-NoExit','-File',('"'+$consoleScript+'"'),'-Needle',$needle,'-ReadyPath',('"'+$ready+'"'),'-VersionPath',('"'+$consoleVersion+'"'))
+    if ($consoleHost.terminal) { $consoleArguments = @('-w','new','--title',$needle,'powershell.exe') + $consoleArguments }
+    $consoleChild = Start-Process $consoleHost.path -ArgumentList $consoleArguments -PassThru
+    Wait-Rc { $script:sourceWindow = Find-Source $needle; $script:sourceWindow -ne [IntPtr]::Zero } ($consoleHost.name + ' window')
     Set-RcForeground $sourceWindow
     [IO.File]::WriteAllText($ready,'ready')
     $consoleText = "$needle Unicode 日本語 🧪`r`nsynthetic console output"
     Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $consoleText } 'PowerShell Set-Clipboard native Unicode'
-    $record = Record-Capture 'PowerShell console (Set-Clipboard)' $needle ((Get-Content -LiteralPath $consoleVersion -Raw).Trim())
+    $hostVersion = if ($consoleHost.terminal) { [Diagnostics.FileVersionInfo]::GetVersionInfo($consoleHost.path).FileVersion } else { (Get-Content -LiteralPath $consoleVersion -Raw).Trim() }
+    $record = Record-Capture $consoleHost.name $needle $hostVersion
+    if ($consoleHost.terminal -and $record.latest.source -ne 'WindowsTerminal') { throw 'Windows Terminal source attribution is wrong.' }
     [System.Windows.Forms.Clipboard]::Clear(); Restore-FromHistory $needle
     Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $consoleText } 'PowerShell exact text restoration'
     Close-RcHistory
     [void][ClipScopeRcNative]::PostMessage($sourceWindow,0x10,[IntPtr]::Zero,[IntPtr]::Zero)
     if (-not $consoleChild.WaitForExit(5000)) { $consoleChild.Kill(); $consoleChild.WaitForExit() }
     $consoleChild.Dispose(); $consoleChild=$null; $sourceWindow=[IntPtr]::Zero
+    }
 
     $paint = Join-Path $env:WINDIR 'System32/mspaint.exe'
     if (Test-Path -LiteralPath $paint) {
@@ -252,7 +262,7 @@ Set-Clipboard -Value $text
     Wait-Rc { (Get-Content (Join-Path $data 'logs/diagnostic.log') -Raw).Contains('tray.recovered') } 'tray recovery after actual Explorer restart' 30
     Open-RcHistory $app 'hotkey'; Close-RcHistory
     $results.Add(@{ app='Explorer restart'; result='PASS actual shell restart, tray recovery log, global hotkey and search focus' })
-    $results.Add(@{ app='Snipping Tool, Windows Terminal, Office, GPU/protected windows'; result='NOT TESTED by this harness; physical matrix remains open' })
+    $results.Add(@{ app='Snipping Tool, Office, GPU/protected windows'; result='NOT TESTED by this harness; physical matrix remains open' })
     $results | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $evidence 'compatibility.json') -Encoding UTF8
     Write-Output '::notice title=RC real apps::PASS: Notepad Unicode/multiline/URL copy and paste; Edge and Chrome when installed CF_HTML/text restoration; Explorer file list restoration; Notepad privacy persisted over restart; actual Explorer restart tray recovery and hotkey'
     foreach ($result in $results) { Write-Output ('::notice title=RC application evidence::' + ($result | ConvertTo-Json -Compress -Depth 8)) }
