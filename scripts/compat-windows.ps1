@@ -34,8 +34,11 @@ function Restore-FromHistory([string] $Needle) {
     Start-Sleep -Milliseconds 500
     Invoke-RcAction 'Copy'
 }
-function Record-Capture([string] $Name, [string] $Needle, [string] $Version) {
-    Wait-Rc { (Get-RcProbe $data $Needle).payloadHits -ge 1 } "$Name persisted"
+function Record-Capture([string] $Name, [string] $Needle, [string] $Version, [int] $PublisherId = 0) {
+    Wait-Rc {
+        $candidate = Get-RcProbe $data $Needle
+        $candidate.payloadHits -ge 1 -and ($PublisherId -eq 0 -or $candidate.latest.sourceProcessId -eq $PublisherId)
+    } "$Name persisted from expected publisher"
     Start-Sleep -Milliseconds 1500
     $record = Get-RcProbe $data $Needle
     $results.Add([PSCustomObject]@{ app = $Name; version = $Version; result = 'PASS capture'; stored = $record.latest;
@@ -184,8 +187,10 @@ Set-Clipboard -Value $text
     [uint32]$publisherId = 0
     [void][ClipScopeRcNative]::GetWindowThreadProcessId($clipboardOwner,[ref]$publisherId)
     if ($publisherId -eq 0) { throw 'Set-Clipboard has no resolved native owner.' }
-    $hostVersion = if ($consoleHost.terminal) { [Diagnostics.FileVersionInfo]::GetVersionInfo($consoleHost.path).FileVersion } else { (Get-Content -LiteralPath $consoleVersion -Raw).Trim() }
-    $record = Record-Capture $consoleHost.name $needle $hostVersion
+    [uint32]$hostProcessId = 0
+    [void][ClipScopeRcNative]::GetWindowThreadProcessId($sourceWindow,[ref]$hostProcessId)
+    $hostVersion = if ($consoleHost.terminal) { [Diagnostics.Process]::GetProcessById($hostProcessId).MainModule.FileVersionInfo.FileVersion } else { (Get-Content -LiteralPath $consoleVersion -Raw).Trim() }
+    $record = Record-Capture $consoleHost.name $needle $hostVersion $publisherId
     if ($record.latest.sourceProcessId -ne $publisherId) { throw "Set-Clipboard attribution differs from native owner PID $publisherId; recorded $($record.latest.source):$($record.latest.sourceProcessId)." }
     Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }; Restore-FromHistory $needle
     Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $consoleText } 'PowerShell exact text restoration'
@@ -199,7 +204,12 @@ Set-Clipboard -Value $text
         [System.Windows.Forms.SendKeys]::SendWait('^+a^+c')
         Wait-Rc { [System.Windows.Forms.Clipboard]::GetText().Contains($needle) -and [System.Windows.Forms.Clipboard]::GetText().Contains('日本語') } 'Terminal native selection copy'
         $terminalText = Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::GetText() }
-        $record = Record-Capture 'Windows Terminal native Ctrl+Shift+C' $needle $hostVersion
+        $nativeOwner = [ClipScopeRcNative]::GetAncestor([ClipScopeRcNative]::GetClipboardOwner(),2)
+        [uint32]$nativePublisherId = 0
+        [void][ClipScopeRcNative]::GetWindowThreadProcessId($nativeOwner,[ref]$nativePublisherId)
+        $nativeFormats = Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::GetDataObject().GetFormats($false) }
+        Write-Output ('::notice title=RC Terminal native clipboard::' + (@{ ownerPid=$nativePublisherId; hostPid=$hostProcessId; formats=@($nativeFormats); textCharacters=$terminalText.Length } | ConvertTo-Json -Compress))
+        $record = Record-Capture 'Windows Terminal native Ctrl+Shift+C' $needle $hostVersion $hostProcessId
         [uint32]$terminalId = 0
         [void][ClipScopeRcNative]::GetWindowThreadProcessId($sourceWindow,[ref]$terminalId)
         if ($record.latest.sourceProcessId -ne $terminalId -or $record.latest.source -ne 'WindowsTerminal') { throw "Terminal native copy attribution is $($record.latest.source):$($record.latest.sourceProcessId), expected WindowsTerminal:$terminalId." }
