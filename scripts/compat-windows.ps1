@@ -178,12 +178,35 @@ Set-Clipboard -Value $text
     [IO.File]::WriteAllText($ready,'ready')
     $consoleText = "$needle Unicode 日本語 🧪`r`nsynthetic console output"
     Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $consoleText } 'PowerShell Set-Clipboard native Unicode'
+    # Set-Clipboard is published by its actual clipboard owner, which can be
+    # PowerShell's hidden helper rather than its different-process terminal host.
+    $clipboardOwner = [ClipScopeRcNative]::GetAncestor([ClipScopeRcNative]::GetClipboardOwner(),2)
+    [uint32]$publisherId = 0
+    [void][ClipScopeRcNative]::GetWindowThreadProcessId($clipboardOwner,[ref]$publisherId)
+    if ($publisherId -eq 0) { throw 'Set-Clipboard has no resolved native owner.' }
     $hostVersion = if ($consoleHost.terminal) { [Diagnostics.FileVersionInfo]::GetVersionInfo($consoleHost.path).FileVersion } else { (Get-Content -LiteralPath $consoleVersion -Raw).Trim() }
     $record = Record-Capture $consoleHost.name $needle $hostVersion
-    if ($consoleHost.terminal -and $record.latest.source -ne 'WindowsTerminal') { throw 'Windows Terminal source attribution is wrong.' }
+    if ($record.latest.sourceProcessId -ne $publisherId) { throw "Set-Clipboard attribution differs from native owner PID $publisherId; recorded $($record.latest.source):$($record.latest.sourceProcessId)." }
     Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }; Restore-FromHistory $needle
     Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -eq $consoleText } 'PowerShell exact text restoration'
     Close-RcHistory
+    if ($consoleHost.terminal) {
+        # Also exercise Terminal's own selection/copy, independently of the shell
+        # command. This must be attributed to the visible Windows Terminal owner.
+        Set-RcForeground $sourceWindow
+        Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
+        Start-Sleep -Milliseconds 2100 # outside the intentional duplicate window
+        [System.Windows.Forms.SendKeys]::SendWait('^+a^+c')
+        Wait-Rc { [System.Windows.Forms.Clipboard]::GetText().Contains($needle) -and [System.Windows.Forms.Clipboard]::GetText().Contains('日本語') } 'Terminal native selection copy'
+        $terminalText = Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::GetText() }
+        $record = Record-Capture 'Windows Terminal native Ctrl+Shift+C' $needle $hostVersion
+        [uint32]$terminalId = 0
+        [void][ClipScopeRcNative]::GetWindowThreadProcessId($sourceWindow,[ref]$terminalId)
+        if ($record.latest.sourceProcessId -ne $terminalId -or $record.latest.source -ne 'WindowsTerminal') { throw "Terminal native copy attribution is $($record.latest.source):$($record.latest.sourceProcessId), expected WindowsTerminal:$terminalId." }
+        Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }; Restore-FromHistory $needle
+        Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -ceq $terminalText } 'Terminal native copy exact restoration'
+        Close-RcHistory
+    }
     [void][ClipScopeRcNative]::PostMessage($sourceWindow,0x10,[IntPtr]::Zero,[IntPtr]::Zero)
     if (-not $consoleChild.WaitForExit(5000)) { $consoleChild.Kill(); $consoleChild.WaitForExit() }
     $consoleChild.Dispose(); $consoleChild=$null; $sourceWindow=[IntPtr]::Zero
@@ -273,6 +296,7 @@ Set-Clipboard -Value $text
 } catch {
     $results | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $evidence 'compatibility-partial.json') -Encoding UTF8
     Write-Output ('::error title=RC real apps::' + $_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A') + " at line $($_.InvocationInfo.ScriptLineNumber), phase $script:phase")
+    foreach ($result in ($results | Select-Object -Last 3)) { Write-Output ('::notice title=RC partial application evidence::' + ($result | ConvertTo-Json -Compress -Depth 8)) }
     throw
 } finally {
     if ($app -and -not $app.HasExited) { Stop-RcApp $exe $app }

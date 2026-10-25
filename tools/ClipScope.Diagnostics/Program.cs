@@ -67,7 +67,7 @@ else
             metadataHits = Scalar("SELECT COUNT(*) FROM clips WHERE instr(title,$value)>0 OR instr(app,$value)>0;", needle),
             ftsHits = Scalar("SELECT COUNT(*) FROM clips_fts WHERE clips_fts MATCH $value;", "\"" + needle.Replace("\"", "\"\"") + "\""),
             mediaFiles = Directory.GetFiles(paths.Media).Length + Directory.GetFiles(paths.Thumbnails).Length, integrity = "ok",
-            latest = latest is null ? null : new { kind = latest.Kind.ToString(), source = latest.Source.ProcessName,
+            latest = latest is null ? null : new { kind = latest.Kind.ToString(), source = latest.Source.ProcessName, sourceProcessId = latest.Source.ProcessId,
                 hasHtml = latest.Html is not null, hasRtf = latest.Rtf is not null, formats = latest.Formats,
                 fileCount = latest.Files.Length, context = Preview(latest.ContextScreenshotPath), thumbnail = Preview(latest.ThumbnailPath) } }));
     }
