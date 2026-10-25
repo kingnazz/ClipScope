@@ -48,7 +48,7 @@ try {
     if ($setup.ExitCode -ne 0) { throw 'Compatibility installation failed.' }
     '{"ScreenshotsEnabled":true}' | Set-Content (Join-Path $data 'settings.json') -Encoding UTF8
     $app = Start-Process $exe -ArgumentList '--background' -PassThru
-    Wait-Rc { [ClipScopeRcNative]::FindWindow('ClipScope.NativeHost.v1',$null) -ne [IntPtr]::Zero } 'installed native host'
+    Wait-Rc { [ClipScopeRcNative]::FindWindow('ClipScope.NativeHost.v1',[IntPtr]::Zero) -ne [IntPtr]::Zero } 'installed native host'
 
     # Native Notepad, real Ctrl+C and restore + Ctrl+V, not a Forms text producer.
     if (Get-Process notepad -ErrorAction SilentlyContinue) { throw 'A pre-existing Notepad instance is protected.' }
@@ -95,7 +95,7 @@ try {
         if ($restart) {
             Stop-RcApp $exe $app
             $app = Start-Process $exe -ArgumentList '--background' -PassThru
-            Wait-Rc { [ClipScopeRcNative]::FindWindow('ClipScope.NativeHost.v1',$null) -ne [IntPtr]::Zero } 'restart with exclusions'
+            Wait-Rc { [ClipScopeRcNative]::FindWindow('ClipScope.NativeHost.v1',[IntPtr]::Zero) -ne [IntPtr]::Zero } 'restart with exclusions'
         }
         $secret = 'rcexcluded' + [Guid]::NewGuid().ToString('N')
         $before = Get-RcProbe $data $secret
@@ -123,7 +123,7 @@ try {
         if ($restart) {
             Stop-RcApp $exe $app
             $app = Start-Process $exe -ArgumentList '--background' -PassThru
-            Wait-Rc { [ClipScopeRcNative]::FindWindow('ClipScope.NativeHost.v1',$null) -ne [IntPtr]::Zero } 'restart while paused'
+            Wait-Rc { [ClipScopeRcNative]::FindWindow('ClipScope.NativeHost.v1',[IntPtr]::Zero) -ne [IntPtr]::Zero } 'restart while paused'
         }
         $pausedNeedle='rcpaused'+[Guid]::NewGuid().ToString('N')
         $pauseSource.Activate(); Set-RcForeground $pauseSource.Handle

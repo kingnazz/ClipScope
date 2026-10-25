@@ -54,11 +54,13 @@ jobs:
             $lines | Write-Output
             if ($LASTEXITCODE -ne 0) { throw ('Diagnostic build: ' + (($lines | Select-Object -Last 12) -join "`n")) }
             ./scripts/test-installer.ps1
-            ./scripts/benchmark-search.ps1
           } catch {
             Write-Output ('::error title=RC validation::' + $_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A') + " at line $($_.InvocationInfo.ScriptLineNumber)")
             throw
           }
+      - name: Measure repository search at 100 and 10000 clips
+        shell: pwsh
+        run: ./scripts/benchmark-search.ps1
       - name: Test real applications, exclusions and Explorer recovery
         shell: powershell
         run: ./scripts/compat-windows.ps1

@@ -10,7 +10,9 @@ using System;
 using System.Runtime.InteropServices;
 public static class ClipScopeRcNative {
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
-    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string cls, string title);
+    // PowerShell coerces $null to an empty string for string parameters. An
+    // IntPtr caption explicitly passes NULL, matching every caption in the class.
+    [DllImport("user32.dll", EntryPoint="FindWindowW", ExactSpelling=true, CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string cls, IntPtr title);
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(uint processId);
@@ -101,7 +103,7 @@ function Open-RcHistory($Process, [string] $Method = 'hotkey') {
         [ClipScopeRcNative]::keybd_event(0x11,0,2,[UIntPtr]::Zero)
     } else {
         [void][ClipScopeRcNative]::AllowSetForegroundWindow([uint32]$Process.Id)
-        $hostWindow = [ClipScopeRcNative]::FindWindow('ClipScope.NativeHost.v1', $null)
+        $hostWindow = [ClipScopeRcNative]::FindWindow('ClipScope.NativeHost.v1', [IntPtr]::Zero)
         if ($hostWindow -eq [IntPtr]::Zero) { throw 'Native listener is missing.' }
         [void][ClipScopeRcNative]::PostMessage($hostWindow, 0x8003, [IntPtr]::Zero, [IntPtr]0x203)
     }
@@ -117,12 +119,12 @@ function Close-RcHistory {
 function Invoke-RcTrayMenu($Process, [string] $Action) {
     # Drive the real Win32 popup through the notification callback. Physical
     # hit-testing of the shell icon remains a separate Windows 11 acceptance item.
-    $hostWindow = [ClipScopeRcNative]::FindWindow('ClipScope.NativeHost.v1',$null)
+    $hostWindow = [ClipScopeRcNative]::FindWindow('ClipScope.NativeHost.v1',[IntPtr]::Zero)
     [void][ClipScopeRcNative]::AllowSetForegroundWindow([uint32]$Process.Id)
     [void][ClipScopeRcNative]::PostMessage($hostWindow,0x8003,[IntPtr]::Zero,[IntPtr]0x205)
     $script:trayProvider = $null
     Wait-Rc {
-        $popup = [ClipScopeRcNative]::FindWindow('#32768',$null)
+        $popup = [ClipScopeRcNative]::FindWindow('#32768',[IntPtr]::Zero)
         if ($popup -eq [IntPtr]::Zero) { return $false }
         $menu = [System.Windows.Automation.AutomationElement]::FromHandle($popup)
         if ($menu.Current.ProcessId -ne $Process.Id) { return $false }

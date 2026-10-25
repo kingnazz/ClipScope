@@ -164,6 +164,9 @@ try {
     # Reinstallation is the supported repair operation; it must close the running app.
     Invoke-Setup $installer
     if (Get-Process -Name 'ClipScope.App' -ErrorAction SilentlyContinue) { throw 'Installer did not close the installed app.' }
+    foreach ($file in $manifest.payload) {
+        if ((Get-FileHash -LiteralPath (Join-Path $install $file.path)).Hash -ne $file.sha256) { throw "Repaired payload hash differs: $($file.path)" }
+    }
     if ([IO.File]::ReadAllText((Join-Path $data 'settings.json')) -ne $settings) { throw 'Repair changed existing settings.' }
     if ((Get-ItemProperty $runKey).ClipScope -ne ('"' + $exe + '" --background')) { throw 'Repair lost startup registration.' }
     Invoke-Setup (Join-Path $install 'unins000.exe')

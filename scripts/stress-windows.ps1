@@ -152,6 +152,10 @@ try {
         ConvertTo-Json -Depth 5 | Set-Content (Join-Path $evidence 'stress.json') -Encoding UTF8
     $summary = "Measured $Operations operations, $($probe.clips) persisted, $([Math]::Round($elapsedMinutes,1)) min; cold=$([Math]::Round($coldMs))ms idle=$([Math]::Round($idleCpu,3))% of one core; private WS $($samples[0].privateWorkingSetBytes)->$($samples[$samples.Count-1].privateWorkingSetBytes), handles $($samples[0].handles)->$($samples[$samples.Count-1].handles), GDI $($samples[0].gdi)->$($samples[$samples.Count-1].gdi), USER $($samples[0].user)->$($samples[$samples.Count-1].user)."
     Write-Output "::notice title=RC stress measurements::$summary"
+    Write-Output ('::notice title=RC storage measurements::' + (@{ textClips=$probe.kindCounts.text; imageClips=$probe.kindCounts.images;
+        databaseBytesFirst=$samples[0].databaseBytes; databaseBytesLast=$samples[$samples.Count-1].databaseBytes;
+        mediaBytesFirst=$samples[0].mediaBytes; mediaBytesLast=$samples[$samples.Count-1].mediaBytes;
+        privateBytesFirst=$samples[0].privateBytes; privateBytesLast=$samples[$samples.Count-1].privateBytes } | ConvertTo-Json -Compress))
     Write-Output ('::notice title=RC heap measurements::' + ($heapSummary | ConvertTo-Json -Compress))
     Write-Output ('::notice title=RC resource trend::' + ($trend | ConvertTo-Json -Compress))
     Write-Output ('::notice title=RC UI latency samples::' + (@{ coldMs=$coldMs; trayCallbackMs=$warm; hotkeyMs=$hotkey; captureProbeMs=$captureLatency; imageFilterToDecodedMs=$imageSelectionMs } | ConvertTo-Json -Compress))
