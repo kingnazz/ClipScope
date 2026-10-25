@@ -143,6 +143,7 @@ try {
         payload = @($files | ForEach-Object { @{ path = $_; sha256 = (Get-FileHash -LiteralPath (Join-Path $stage $_) -Algorithm SHA256).Hash } }) }
     $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $output 'build-manifest.json') -Encoding utf8
     "$($manifest.sha256)  $($manifest.installer)" | Set-Content -LiteralPath (Join-Path $output 'SHA256SUMS.txt') -Encoding ascii
+    Write-Output "::notice title=RC installer checksum::$($manifest.sha256)  $($manifest.installer)"
     Write-Output "Built $($manifest.installer); self-contained payload validated."
 } catch {
     Write-Output ('::error title=RC packaging::' + $_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A'))

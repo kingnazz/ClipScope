@@ -124,8 +124,13 @@ try {
     New-ItemProperty -Path $runKey -Name ClipScope -Value ('"' + $baselineExe + '" --background') -PropertyType String -Force | Out-Null
     Invoke-Setup (Join-Path $root "artifacts/predecessor-fixture/ClipScope-$predecessor-win-x64-setup.exe")
     if (-not (Test-Path (Join-Path $install 'rc-stale-fixture.txt'))) { throw 'Predecessor did not install its stale-file fixture.' }
+    $unownedFile = Join-Path $install 'unrelated-user-file.txt'
+    if (Test-Path $unownedFile) { throw 'Unrelated-file fixture path is already occupied.' }
+    [IO.File]::WriteAllText($unownedFile, 'synthetic unrelated user file')
     Invoke-Setup $installer
     if (Test-Path (Join-Path $install 'rc-stale-fixture.txt')) { throw 'Upgrade left a stale previously owned payload file.' }
+    if (-not (Test-Path $unownedFile) -or [IO.File]::ReadAllText($unownedFile) -cne 'synthetic unrelated user file') { throw 'Upgrade changed an unrelated user file.' }
+    Remove-Item -LiteralPath $unownedFile
     $app = Start-Process -FilePath $exe -ArgumentList '--background' -PassThru
     Start-Sleep -Seconds 3
     if ($app.HasExited) { throw 'Upgraded profile cannot launch.' }

@@ -271,6 +271,20 @@ $source.Show()
     $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
     [System.Windows.Forms.Clipboard]::SetText('ClipScope clear pinned sentinel')
     Wait-Condition { $null -ne (Find-Name 'ClipScope clear pinned sentinel') } 'pinned-clear fixture capture'
+    # Text persistence precedes optional screenshot capture. Opening history here
+    # changes the foreground HWND and correctly cancels that capture for privacy.
+    # Keep the real source foreground until the row reports a DB-attached context,
+    # rather than treating an icon (or a PNG still being written) as fixture media.
+    Wait-Condition {
+        if ([ClipScopeSmokeNative]::GetForegroundWindow() -ne $source.Handle) { throw 'Pinned fixture lost its source foreground before context attachment.' }
+        $rows = $script:window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem)))
+        foreach ($row in $rows) {
+            if ($row.Current.Name -like '*has source snapshot*: ClipScope clear pinned sentinel') { return $true }
+        }
+        return $false
+    } 'pinned-clear fixture context attached before opening history'
+    Write-Output '::notice title=RC upgrade fixture::Pinned sentinel has a persisted context screenshot before foreground changes'
     [System.Windows.Forms.SendKeys]::SendWait('^+v')
     Wait-Condition { $null -ne (Find-Name 'Pin') } 'clear fixture actions'
     Invoke-Action 'Pin'
