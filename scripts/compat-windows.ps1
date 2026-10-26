@@ -272,7 +272,18 @@ Set-Clipboard -Value $text
         $browserProfile = Join-Path $fixtures.Path ($browser.name + '-profile')
         $child = Start-Process $browser.path -ArgumentList @('--no-first-run','--no-default-browser-check','--disable-background-mode',('--user-data-dir="' + $browserProfile + '"'),('--app="' + ([Uri]$html).AbsoluteUri + '"')) -PassThru
         Wait-Rc { $script:sourceWindow = Find-Source $needle; $script:sourceWindow -ne [IntPtr]::Zero } ($browser.name + ' real browser window') 40
+        # An active browser window can still have keyboard focus in browser UI.
+        # Click the owned local document before selecting/copying its HTML.
+        Set-RcForeground $sourceWindow
+        $documentRect = New-Object ClipScopeRcNative+Rect
+        if (-not [ClipScopeRcNative]::GetWindowRect($sourceWindow,[ref]$documentRect)) { throw 'Browser document bounds unavailable.' }
+        [void][ClipScopeRcNative]::SetCursorPos($documentRect.Left+100,$documentRect.Top+160)
+        [ClipScopeRcNative]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+        [ClipScopeRcNative]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+        Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
         Copy-RealSource $sourceWindow
+        $browserFormats = Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::GetDataObject().GetFormats($false) }
+        Write-Output ('::notice title=RC browser native clipboard::' + (@{ app=$browser.name; formats=@($browserFormats) } | ConvertTo-Json -Compress))
         Wait-Rc { [System.Windows.Forms.Clipboard]::ContainsData('HTML Format') -and [System.Windows.Forms.Clipboard]::GetText().Contains($needle) } ($browser.name + ' native HTML copy')
         $copied = Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::GetText() }
         $htmlCopied = Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::GetData('HTML Format') }
