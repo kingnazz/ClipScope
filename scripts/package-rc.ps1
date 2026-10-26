@@ -78,7 +78,7 @@ try {
     Copy-Item -Path 'packaging/licenses/*' -Destination $licenses
     $runtimeConfig = Get-Content -LiteralPath (Join-Path $stage 'ClipScope.App.runtimeconfig.json') -Raw | ConvertFrom-Json -AsHashtable
     $runtimeVersion = @($runtimeConfig.runtimeOptions.includedFrameworks | Where-Object { $_.name -eq 'Microsoft.NETCore.App' })[0].version
-    if ($runtimeVersion -ne $version.Runtime) { throw 'Published .NET runtime differs from the pinned toolchain.' }
+    if ($runtimeVersion -ne $version.Runtime) { throw "Published .NET runtime $runtimeVersion differs from pinned $($version.Runtime)." }
     $runtimePackage = Join-Path $nuget "microsoft.netcore.app.runtime.win-x64/$runtimeVersion"
     foreach ($notice in @('LICENSE.TXT','THIRD-PARTY-NOTICES.TXT')) {
         Copy-Item -LiteralPath (Join-Path $runtimePackage $notice) -Destination (Join-Path $licenses ".NET-$notice")
