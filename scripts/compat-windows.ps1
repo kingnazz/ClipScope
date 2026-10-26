@@ -199,6 +199,7 @@ Set-Clipboard -Value $text
         # Also exercise Terminal's own selection/copy, independently of the shell
         # command. This must be attributed to the visible Windows Terminal owner.
         Set-RcForeground $sourceWindow
+        $beforeNativeCopy = Get-RcProbe $data $needle
         Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
         Start-Sleep -Milliseconds 2100 # outside the intentional duplicate window
         [System.Windows.Forms.SendKeys]::SendWait('^+a^+c')
@@ -209,6 +210,18 @@ Set-Clipboard -Value $text
         [void][ClipScopeRcNative]::GetWindowThreadProcessId($nativeOwner,[ref]$nativePublisherId)
         $nativeFormats = Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::GetDataObject().GetFormats($false) }
         Write-Output ('::notice title=RC Terminal native clipboard::' + (@{ ownerPid=$nativePublisherId; hostPid=$hostProcessId; formats=@($nativeFormats); textCharacters=$terminalText.Length } | ConvertTo-Json -Compress))
+        if ($nativePublisherId -eq 0) {
+            # Terminal 1.23 flushes an ownerless native text copy on this image.
+            # PrivacyPolicy explicitly rejects unresolved owners. Validate that
+            # refusal instead of inventing a foreground-based publisher identity.
+            Start-Sleep -Seconds 2
+            $afterNativeCopy = Get-RcProbe $data $needle
+            foreach ($field in @('clips','payloadHits','metadataHits','ftsHits','mediaFiles')) {
+                if ($beforeNativeCopy.$field -ne $afterNativeCopy.$field) { throw "Ownerless Terminal copy changed $field despite the fail-closed source policy." }
+            }
+            $results.Add(@{ app='Windows Terminal native Ctrl+Shift+C'; version=$hostVersion; result='PASS fail-closed refusal: native owner PID 0; no new content/metadata/FTS/media'; limitation='Native ownerless copy capture unavailable; Terminal-hosted Set-Clipboard capture/restore tested separately' })
+            Write-Output '::notice title=RC Terminal ownerless copy::PASS no new content/metadata/FTS/media; native copy capture unavailable with owner PID 0'
+        } else {
         $record = Record-Capture 'Windows Terminal native Ctrl+Shift+C' $needle $hostVersion $hostProcessId
         [uint32]$terminalId = 0
         [void][ClipScopeRcNative]::GetWindowThreadProcessId($sourceWindow,[ref]$terminalId)
@@ -216,6 +229,7 @@ Set-Clipboard -Value $text
         Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }; Restore-FromHistory $needle
         Wait-Rc { [System.Windows.Forms.Clipboard]::GetText() -ceq $terminalText } 'Terminal native copy exact restoration'
         Close-RcHistory
+        }
     }
     [void][ClipScopeRcNative]::PostMessage($sourceWindow,0x10,[IntPtr]::Zero,[IntPtr]::Zero)
     if (-not $consoleChild.WaitForExit(5000)) { $consoleChild.Kill(); $consoleChild.WaitForExit() }
