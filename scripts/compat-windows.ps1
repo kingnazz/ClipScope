@@ -268,18 +268,21 @@ Set-Clipboard -Value $text
         if (-not (Test-Path $browser.path)) { $results.Add(@{ app=$browser.name; result='NOT TESTED: not installed' }); continue }
         $needle = 'rcbrowser' + [Guid]::NewGuid().ToString('N')
         $html = Join-Path $fixtures.Path "$needle.html"
-        [IO.File]::WriteAllText($html,"<!doctype html><meta charset=utf-8><title>$needle</title><h1>$needle</h1><p>Unicode 日本語 🧪</p><p><b>Rich HTML</b> https://example.test/</p>")
+        [IO.File]::WriteAllText($html,"<!doctype html><meta charset=utf-8><title>$needle</title><div contenteditable=true role=textbox aria-label='ClipScope HTML fixture' tabindex=0 autofocus><h1>$needle</h1><p>Unicode 日本語 🧪</p><p><b>Rich HTML</b> https://example.test/</p></div>")
         $browserProfile = Join-Path $fixtures.Path ($browser.name + '-profile')
         $child = Start-Process $browser.path -ArgumentList @('--no-first-run','--no-default-browser-check','--disable-background-mode',('--user-data-dir="' + $browserProfile + '"'),('--app="' + ([Uri]$html).AbsoluteUri + '"')) -PassThru
         Wait-Rc { $script:sourceWindow = Find-Source $needle; $script:sourceWindow -ne [IntPtr]::Zero } ($browser.name + ' real browser window') 40
-        # An active browser window can still have keyboard focus in browser UI.
-        # Click the owned local document before selecting/copying its HTML.
+        # The window title can arrive before its document accepts input. Wait for
+        # the real editable HTML accessibility element, then verify keyboard focus.
         Set-RcForeground $sourceWindow
-        $documentRect = New-Object ClipScopeRcNative+Rect
-        if (-not [ClipScopeRcNative]::GetWindowRect($sourceWindow,[ref]$documentRect)) { throw 'Browser document bounds unavailable.' }
-        [void][ClipScopeRcNative]::SetCursorPos($documentRect.Left+100,$documentRect.Top+160)
-        [ClipScopeRcNative]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
-        [ClipScopeRcNative]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+        $browserRoot = [System.Windows.Automation.AutomationElement]::FromHandle($sourceWindow)
+        Wait-Rc {
+            $script:htmlEditor = $browserRoot.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty,'ClipScope HTML fixture')))
+            $null -ne $script:htmlEditor
+        } ($browser.name + ' HTML document ready')
+        $script:htmlEditor.SetFocus()
+        Wait-Rc { $script:htmlEditor.Current.HasKeyboardFocus } ($browser.name + ' HTML editor keyboard focus')
         Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
         Copy-RealSource $sourceWindow
         $browserFormats = Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::GetDataObject().GetFormats($false) }
