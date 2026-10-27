@@ -1,13 +1,17 @@
 # Run with Windows PowerShell 5.1 in STA: powershell -Sta -File scripts/smoke-windows.ps1
 # Uses an isolated CI desktop and known synthetic content. Never run against an
 # existing user data directory: the script refuses to touch one.
+param([string] $ExecutablePath = '', [switch] $RequireDesktop, [switch] $RetainProfile, [string] $OwnershipReceipt = '')
 $ErrorActionPreference = 'Stop'
 if (-not [Environment]::UserInteractive) {
+    if ($RequireDesktop) { throw 'An interactive desktop is required for installed acceptance.' }
     Write-Output '::notice title=ClipScope desktop smoke::SKIPPED: runner has no interactive desktop'
     exit 0
 }
 . (Join-Path $PSScriptRoot 'windows-test-profile.ps1')
+. (Join-Path $PSScriptRoot 'windows-test-clipboard.ps1')
 Assert-IsolatedDesktopRunner
+if ($RetainProfile -and -not $OwnershipReceipt) { throw 'Retaining synthetic data requires an explicit ownership receipt path.' }
 $dataDirectory = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ClipScope'
 if (Test-Path -LiteralPath $dataDirectory) { throw 'Existing ClipScope profile is protected.' }
 Add-Type -AssemblyName System.Windows.Forms
@@ -21,6 +25,8 @@ public static class ClipScopeSmokeNative {
     [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT rect, int size);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
     [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
     [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
     [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
@@ -44,6 +50,7 @@ function Wait-Condition([scriptblock] $Condition, [string] $Description) {
 $script:app = $null
 $source = $null
 $profile = New-OwnedTestDirectory $dataDirectory
+$passed = $false
 try {
 $source = New-Object System.Windows.Forms.Form
 $source.Text = 'ClipScope CI Source'
@@ -55,7 +62,7 @@ $source.Controls.Add($destination)
 $source.Show()
 # Exercise the real persisted screenshot preference, never a production test hook.
 '{"ScreenshotsEnabled":true}' | Set-Content -Path (Join-Path $dataDirectory 'settings.json') -Encoding UTF8
-    $exe = Join-Path (Split-Path $PSScriptRoot -Parent) 'src/ClipScope.App/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64/ClipScope.App.exe'
+    $exe = if ($ExecutablePath) { $ExecutablePath } else { Join-Path (Split-Path $PSScriptRoot -Parent) 'src/ClipScope.App/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64/ClipScope.App.exe' }
     $script:app = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe -Parent) -PassThru
     $script:window = $null
     Wait-Condition {
@@ -81,24 +88,41 @@ $source.Show()
         } "action $Name"
     }
     function Find-Pattern([string] $Name, $Pattern) {
-        $elements = $script:window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-            (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty, $Name)))
-        foreach ($element in $elements) {
-            $provider = $null
-            if ($element.TryGetCurrentPattern($Pattern, [ref]$provider)) { return $provider }
-        }
-        throw 'Required UI automation pattern is unavailable.'
+        $script:foundPattern = $null
+        Wait-Condition {
+            $elements = $script:window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::NameProperty, $Name)))
+            foreach ($element in $elements) {
+                $provider = $null
+                if ($element.TryGetCurrentPattern($Pattern, [ref]$provider)) { $script:foundPattern = $provider; return $true }
+            }
+            return $false
+        } "UI pattern $Name"
+        return $script:foundPattern
     }
     # The owner is a Forms clipboard helper HWND; the real foreground title must
     # still be attributed to this visible source window.
     $source.Activate(); $source.BringToFront()
     [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
+    # Sequential smoke processes may lack SetForegroundWindow permission after
+    # the previous app exits. Click the owned topmost source like a real user,
+    # then verify the actual foreground HWND before copying anything.
+    $point = $source.PointToScreen((New-Object System.Drawing.Point 40,60))
+    [void][ClipScopeSmokeNative]::SetCursorPos($point.X,$point.Y)
+    [ClipScopeSmokeNative]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+    [ClipScopeSmokeNative]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    while ([ClipScopeSmokeNative]::GetForegroundWindow() -ne $source.Handle -and [DateTime]::UtcNow -lt $deadline) {
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 50
+    }
     if ([ClipScopeSmokeNative]::GetForegroundWindow() -ne $source.Handle) {
+        if ($RequireDesktop) { throw 'Installed acceptance requires real foreground activation.' }
         Write-Output '::notice title=ClipScope desktop smoke::SKIPPED: runner denies foreground activation; launch verified only'
         exit 0
     }
     $fixture = 'ClipScope smoke 192.168.1.15 cafe'
-    [System.Windows.Forms.Clipboard]::SetText($fixture)
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::SetText($fixture) }
     Wait-Condition { $null -ne (Find-Name $fixture) } 'captured text in WinUI history'
     Wait-Condition {
         $elements = $script:window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
@@ -132,7 +156,7 @@ $source.Show()
         }
         return $false
     } 'source snapshot decoded in WinUI'
-    [System.Windows.Forms.Clipboard]::Clear()
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
     $copy = Find-Name 'Copy'
     if ($null -eq $copy) { throw 'Copy action missing.' }
     $copy.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -147,15 +171,15 @@ $source.Show()
     $value.SetValue('no-matching-clip-unique-query')
     Wait-Condition { $null -eq (Find-Name $fixture) } 'search excluding unmatched content'
     # A nonmatching pending query must not copy the previous selection.
-    [System.Windows.Forms.Clipboard]::Clear()
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
     $search.SetFocus()
     [System.Windows.Forms.SendKeys]::SendWait('^{ENTER}')
     Start-Sleep -Milliseconds 400
-    if ([System.Windows.Forms.Clipboard]::ContainsText()) { throw 'A stale search result was copied.' }
+    if (Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::ContainsText() }) { throw 'A stale search result was copied.' }
     # Copy a second clip, then issue commands without waiting for search debounce.
     $value.SetValue('')
     $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
-    [System.Windows.Forms.Clipboard]::SetText('ClipScope second item gamma')
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::SetText('ClipScope second item gamma') }
     Wait-Condition { $null -ne (Find-Name 'ClipScope second item gamma') } 'second captured clip'
     [System.Windows.Forms.SendKeys]::SendWait('^+v')
     Wait-Condition { [ClipScopeSmokeNative]::GetForegroundWindow() -eq [IntPtr]$script:window.Current.NativeWindowHandle } 'activation for immediate commands'
@@ -170,7 +194,7 @@ $source.Show()
     if ($destination.Text.Length -ne 0) { throw 'Ctrl+Enter pasted instead of copying.' }
     # Ctrl held in the source app across activation must still mean Copy, even
     # though the WinUI window never received that Ctrl key-down.
-    [System.Windows.Forms.Clipboard]::Clear()
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
     $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
     try {
         [ClipScopeSmokeNative]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero)
@@ -232,7 +256,11 @@ $source.Show()
     $source.Activate(); $destination.Focus()
     [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
     [System.Windows.Forms.SendKeys]::SendWait('^+v')
-    Wait-Condition { [ClipScopeSmokeNative]::GetForegroundWindow() -eq [IntPtr]$script:window.Current.NativeWindowHandle } 'global shortcut opening history'
+    Wait-Condition {
+        $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+        [ClipScopeSmokeNative]::GetForegroundWindow() -eq [IntPtr]$script:window.Current.NativeWindowHandle -and
+            $focused -and $focused.Current.Name -eq 'Search clipboard history'
+    } 'global shortcut opening history with search focused'
     # Enter in the search box must resolve current results before paste.
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
     Wait-Condition { $destination.Text -eq $fixture } 'focus handoff and synthetic paste into the source application'
@@ -246,14 +274,28 @@ $source.Show()
     # Exercise the real clear-history confirmation, retaining a pinned clip.
     $value.SetValue('')
     $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
-    [System.Windows.Forms.Clipboard]::SetText('ClipScope clear pinned sentinel')
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::SetText('ClipScope clear pinned sentinel') }
     Wait-Condition { $null -ne (Find-Name 'ClipScope clear pinned sentinel') } 'pinned-clear fixture capture'
+    # Text persistence precedes optional screenshot capture. Opening history here
+    # changes the foreground HWND and correctly cancels that capture for privacy.
+    # Keep the real source foreground until the row reports a DB-attached context,
+    # rather than treating an icon (or a PNG still being written) as fixture media.
+    Wait-Condition {
+        if ([ClipScopeSmokeNative]::GetForegroundWindow() -ne $source.Handle) { throw 'Pinned fixture lost its source foreground before context attachment.' }
+        $rows = $script:window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem)))
+        foreach ($row in $rows) {
+            if ($row.Current.Name -like '*has source snapshot*: ClipScope clear pinned sentinel') { return $true }
+        }
+        return $false
+    } 'pinned-clear fixture context attached before opening history'
+    Write-Output '::notice title=RC upgrade fixture::Pinned sentinel has a persisted context screenshot before foreground changes'
     [System.Windows.Forms.SendKeys]::SendWait('^+v')
     Wait-Condition { $null -ne (Find-Name 'Pin') } 'clear fixture actions'
     Invoke-Action 'Pin'
     Wait-Condition { $null -ne (Find-Name 'Unpin') } 'clear fixture pinned'
     $source.Activate(); [void][ClipScopeSmokeNative]::SetForegroundWindow($source.Handle)
-    [System.Windows.Forms.Clipboard]::SetText('ClipScope clear transient')
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::SetText('ClipScope clear transient') }
     Wait-Condition { $null -ne (Find-Name 'ClipScope clear transient') } 'unpinned-clear fixture capture'
     Invoke-Action 'Settings'
     Wait-Condition { $null -ne (Find-Name 'Settings sections') } 'clear settings open'
@@ -288,6 +330,7 @@ $source.Show()
     Invoke-Action 'Cancel'
     Wait-Condition { $null -ne (Find-Name 'ClipScope clear pinned sentinel') } 'pinned clip preserved by clear'
     if ($null -ne (Find-Name 'ClipScope clear transient') -or $null -ne (Find-Name 'ClipScope second item gamma')) { throw 'Clear retained unpinned history.' }
+    $passed = $true
     Write-Output '::notice title=ClipScope desktop smoke::PASS: launch, text capture, source-window context, screenshot PNG and decoded preview, clipboard restoration, pin, FTS search, global shortcut, focus/paste, deletion, media cleanup, immediate commands, settings Cancel, failed Save rollback shortcut replacement and clear preserving pinned clips'
 } catch {
     Write-Output ("::error title=ClipScope desktop smoke::" + $_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A') + " (line $($_.InvocationInfo.ScriptLineNumber), phase $script:phase)")
@@ -303,6 +346,7 @@ $source.Show()
     }
     if ($source) { $source.Close(); $source.Dispose() }
     if ($script:app) { $script:app.Dispose() }
-    [System.Windows.Forms.Clipboard]::Clear()
-    Remove-OwnedTestDirectory $profile
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
+    if ($RetainProfile -and $passed) { $profile | ConvertTo-Json | Set-Content -LiteralPath $OwnershipReceipt -Encoding UTF8 }
+    else { Remove-OwnedTestDirectory $profile }
 }

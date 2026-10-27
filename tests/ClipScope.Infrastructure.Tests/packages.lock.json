@@ -180,7 +180,7 @@
       "clipscope.infrastructure": {
         "type": "Project",
         "dependencies": {
-          "ClipScope.Core": "[1.0.0, )",
+          "ClipScope.Core": "[0.1.0-rc.1, )",
           "Microsoft.Data.Sqlite": "[10.0.13, )"
         }
       }

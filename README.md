@@ -4,9 +4,26 @@ A Windows-first, local-first clipboard history utility that remembers where a cl
 came from. C# / .NET 10 / WinUI 3 / Windows App SDK / SQLite FTS5. No Electron,
 accounts, telemetry, cloud backend, AI, or runtime network service.
 
-**Status:** Phase 1 foundation implemented; Windows desktop acceptance testing is
-still required. This is a draft, not a production release. See
-[validation](docs/VALIDATION.md) for what has actually been verified.
+**Status:** RC1 engineering candidate. Windows 11 physical acceptance is still
+required; this is not a production release. See the [RC1 acceptance record](docs/RC1_ACCEPTANCE.md).
+
+## Install the RC candidate
+
+On Windows 11 x64, download the versioned installer artifact from the
+[RC installer workflow](https://github.com/kingnazz/ClipScope/actions/workflows/rc.yml).
+Extract the artifact ZIP and run its `ClipScope-<version>-win-x64-setup.exe`.
+Installation is per user, with a Start Menu entry and an optional desktop shortcut.
+The installer bundles .NET, WinUI/Windows App SDK and the Visual C++ release runtime.
+No SDK, PowerShell commands or repository checkout are required to use it.
+
+Development artifacts are unsigned and use a placeholder publisher; Windows may
+show an unknown-publisher/SmartScreen warning. A clean Windows 11 installation
+has not yet been certified. The workflow does not publish a GitHub Release.
+
+For updates, exit ClipScope and run the newer installer. Remove it through
+Windows **Settings → Apps → Installed apps**. History, settings and images remain
+in `%LocalAppData%\ClipScope` by default. The uninstaller offers a separate,
+permanent data-removal choice. See [packaging and data policy](docs/PACKAGING.md).
 
 ## Use
 
@@ -33,7 +50,7 @@ A shortcut conflict produces an in-app notice. Open Settings from the tray and
 choose another shortcut. If Windows refuses automatic paste (for example into an
 elevated application), the content stays on the clipboard for manual Ctrl+V.
 
-## Requirements and build
+## Developer requirements and build
 
 Windows 11 x64, the .NET SDK pinned in `global.json`, and the Microsoft Visual C++
 x64 runtime used by WinUI. Visual Studio with Windows application development tools
@@ -48,8 +65,9 @@ From the repository root, in PowerShell:
 ```
 
 The build copies the required Windows App SDK native payload beside the executable.
-.NET itself is framework-dependent in this development build. No installer or
-release is produced. Run the executable from its output directory, keeping all
+.NET itself is framework-dependent in this development build. To build the
+self-contained installer use [the packaging procedure](docs/PACKAGING.md).
+Run the development executable from its output directory, keeping all
 adjacent files. Do not run as administrator.
 
 Portable Core/Infrastructure tests also run on Linux/macOS with .NET 10:
