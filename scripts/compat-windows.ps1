@@ -307,6 +307,19 @@ Set-Clipboard -Value $text
     [void](Start-Process explorer.exe -ArgumentList ('/select,"' + $file + '"') -PassThru)
     Wait-Rc { $script:sourceWindow = Find-Source $folderName; $script:sourceWindow -ne [IntPtr]::Zero } 'Explorer fixture window'
     Set-RcForeground $sourceWindow
+    $explorerRoot = [System.Windows.Automation.AutomationElement]::FromHandle($sourceWindow)
+    Wait-Rc {
+        $items = $explorerRoot.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::ListItem)))
+        foreach ($item in $items) {
+            if ($item.Current.Name -eq 'rcfile-synthetic.txt' -or $item.Current.Name -eq 'rcfile-synthetic') { $script:fileItem=$item; return $true }
+        }
+        return $false
+    } 'Explorer fixture file item ready'
+    $fileSelection = $script:fileItem.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+    $fileSelection.Select(); $script:fileItem.SetFocus()
+    Wait-Rc { $fileSelection.Current.IsSelected -and $script:fileItem.Current.HasKeyboardFocus } 'Explorer fixture selected and focused'
+    Invoke-TestClipboard { [System.Windows.Forms.Clipboard]::Clear() }
     [System.Windows.Forms.SendKeys]::SendWait('^c')
     Wait-Rc { [System.Windows.Forms.Clipboard]::ContainsFileDropList() } 'Explorer CF_HDROP copy'
     $record = Record-Capture 'File Explorer' 'rcfile' ([Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $env:WINDIR 'explorer.exe')).FileVersion)
