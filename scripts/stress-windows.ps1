@@ -51,7 +51,7 @@ try {
     $counterArgs = @('tool','run','dotnet-counters','--','collect','--process-id',"$($app.Id)",
         '--counters','EventCounters\System.Runtime[gc-heap-size]','--refresh-interval','5','--format','csv','--output',('"' + $counterFile + '"'),
         '--duration',([TimeSpan]::FromMinutes($Minutes + 2).ToString('hh\:mm\:ss')))
-    $counter = Start-Process dotnet -ArgumentList $counterArgs -WorkingDirectory $root -PassThru -RedirectStandardOutput (Join-Path $evidence 'counters-stdout.txt') -RedirectStandardError (Join-Path $evidence 'counters-stderr.txt')
+    $counter = Start-Process dotnet -ArgumentList $counterArgs -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $evidence 'counters-stdout.txt') -RedirectStandardError (Join-Path $evidence 'counters-stderr.txt')
     Sample-Resources 'baseline'
     $warm = @(); $hotkey = @(); $captureLatency = @()
     $imageSelectionMs = $null
