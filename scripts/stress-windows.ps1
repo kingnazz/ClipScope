@@ -48,7 +48,7 @@ try {
     $app.Refresh(); $idleCpu = ($app.TotalProcessorTime.TotalMilliseconds - $cpuBefore) / 10000 * 100
     $counterFile = Join-Path $evidence 'managed-heap.csv'
     # Pinned developer tool, never shipped. Committed GC memory uses GCMemoryInfo.
-    # The prior gc-committed counter emitted an impossible negative sample.
+    # The prior gc-heap-size counter emitted an impossible negative sample.
     $counterArgs = @('tool','run','dotnet-counters','--','collect','--process-id',"$($app.Id)",
         '--counters','EventCounters\System.Runtime[gc-committed]','--refresh-interval','5','--format','csv','--output',('"' + $counterFile + '"'),
         '--duration',([TimeSpan]::FromMinutes($Minutes + 2).ToString('hh\:mm\:ss')))
